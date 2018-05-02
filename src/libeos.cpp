@@ -91,7 +91,7 @@ real N_ele(real eta, real beta) {
 			* std::pow(me * c / h, three);
 	const real f1 = fd(one / two, eta, beta);
 	const real f2 = fd(three / two, eta, beta);
-	return c0 * std::pow(beta, 1.5) * (f1 + f2);
+	return c0 * std::pow(beta, 1.5) * (f1 + beta * f2);
 }
 
 real dN_ele_deta(real eta, real beta) {
@@ -99,7 +99,7 @@ real dN_ele_deta(real eta, real beta) {
 			* std::pow(me * c / h, three);
 	const real df1_deta = dfd_deta(one / two, eta, beta);
 	const real df2_deta = dfd_deta(three / two, eta, beta);
-	return c0 * std::pow(beta, 1.5) * (df1_deta + df2_deta);
+	return c0 * std::pow(beta, 1.5) * (df1_deta + beta * df2_deta);
 }
 
 real N_pos(real eta, real beta) {
@@ -234,15 +234,17 @@ void partial_state(int Z, real ne, real T, real& rho, real& ene, real& P) {
 
 int main() {
 	for (real x = 1.0; x < 1.0e+40; x *= 10.0) {
-		const real T = 1000.0;
+		const real T = 10000.0;
 		const real c0 = two * std::pow(two * M_PI * me * kb / (h * h), 1.5);
 		const real beta = kb * T / (me * c * c);
-		const real eta = double(electron_chemical_potential(x, 1000.0));
+		const real eta = double(electron_chemical_potential(x, T));
 		const real mu = kb * T * eta;
 		const real p = electron_pressure(eta, beta);
-		const real e1 = std::exp(-eta);
-		const real e2 = c0 * std::pow(T, 1.5) / x;
-		std::printf("%e %e %e %e %e\n", x, e1, e2, e1 / e2, p / kb / T / x);
+		const real e1 = eta;
+		const real rho = amu * 0.75 * x;
+		const real e2 = 10.0*rho;
+		const real e3 = 2.17e-11/(kb*T);
+		std::printf("%e %e %e %e %e\n", rho, -e1, e2, -e3, std::exp(e2 -e1-e3) );
 	}
 	return 0;
 }
