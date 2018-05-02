@@ -7,6 +7,7 @@
 
 
 #include "real.hpp"
+#include <cmath>
 #include "physcon.hpp"
 
 struct element_t {
@@ -19,6 +20,20 @@ struct element_t {
 		for (int i = 0; i <= Z; i++) {
 			e_i[i] *= eV;
 		}
+	}
+	real ionization_energy(int i, real ne, real T) const {
+		static const real c0 = std::pow(esu, 3) / std::sqrt(kb);
+		static const real c1 = std::pow(M_PI / real(6), real(1) / real(3)) * esu
+				* esu;
+		real e0, e1, de;
+		e1 = c1 * std::pow(ne, real(one) / real(three));
+		if (T != real(0)) {
+			e0 = c0 * real(i + 1) * std::sqrt(ne / T);
+			de = std::min(e0, e1);
+		} else {
+			de = e1;
+		}
+		return e_i[i] - de;
 	}
 	real saha(int i, real T) const {
 		return real(g[i + 1]) * std::exp(-e_i[i + 1] / (kb * T)) / real(g[i]);

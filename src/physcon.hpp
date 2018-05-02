@@ -24,8 +24,6 @@ constexpr real four = real(4);
 constexpr real five = real(5);
 constexpr real half = one / two;
 constexpr real eV = 1.6021772e-12;
-
-
-
+constexpr real esu = 4.8032068e-10;
 
 #endif /* PHYSCON_HPP_ */

@@ -1,3 +1,5 @@
+#include <fenv.h>
+#include <limits>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -137,7 +139,6 @@ real electron_pressure(real eta, real beta) {
 	return pele + ppos;
 }
 
-
 real electron_chemical_potential(real ne, real T) {
 	const real beta = (kb * T) / (me * c * c);
 	const auto F = [ne,beta]( real eta ) {
@@ -166,70 +167,90 @@ real electron_chemical_potential(real ne, real T) {
 	return eta;
 }
 
-std::vector<real> saha_ratios(int Z, real ne, real T) {
-	static const real c0 = two * std::pow(two * M_PI * me * kb / (h * h), 1.5);
+std::vector<real> saha_ratios(int Z, real eta, real ne, real T) {
+
+	const auto& ele = elements[Z];
 	std::vector<real> n(Z + 1);
-	std::vector<real> r(Z);
-	bool all_le1 = true;
-	bool all_ge1 = true;
-	const real c1 = c0 * std::pow(T, 1.5) / ne;
+	n[0] = one;
+
+	/* store floating point exception traps */
+	const int fptrap = fegetexcept();
+	const real infinitesimal = std::numeric_limits<real>::min();
+	fedisableexcept(FE_ALL_EXCEPT);
+
 	for (int i = 0; i < Z; i++) {
-		r[i] = c1 * elements[Z].saha(i, T);
-		all_le1 = all_le1 && (r[i] <= one);
-		all_ge1 = all_le1 && (r[i] >= one);
-	}
-	if (all_le1) {
-		n[0] = one;
-		for (int i = 0; i < Z; i++) {
-			n[i + 1] = r[i] * n[i];
-		}
-	} else if (all_ge1) {
-		n[Z] = one;
-		for (int i = Z; i > 0; i--) {
-			n[i - 1] = n[i] / r[i - 1];
-		}
-	} else {
-		n[0] = one;
-		for (int i = 0; i < Z; i++) {
-			n[i + 1] = r[i] * n[i];
-			if (n[i + 1] > one) {
-				for (int j = 0; j <= i; j++) {
-					n[j] /= n[i + 1];
-				}
-				n[i + 1] = one;
+		const real np1 = (ele.g[i + 1] / ele.g[i])
+				* std::exp(-ele.ionization_energy(i + 1, ne, T) - eta);
+		if (fetestexcept(FE_OVERFLOW)) {
+			feclearexcept(FE_OVERFLOW);
+			n[i + 1] = one;
+			for (int j = 0; j < i + 1; j++) {
+				n[j] = infinitesimal;
 			}
+		} else if (fetestexcept(FE_UNDERFLOW) || (np1 == zero)) {
+			feclearexcept(FE_UNDERFLOW);
+			for (; i < Z; i++) {
+				n[i + 1] = infinitesimal;
+			}
+		} else {
+			n[i + 1] = np1;
 		}
 	}
-	real nsum = zero;
+
+	/* restore exception traps */
+	feenableexcept(fptrap);
+
+	real sum = zero;
 	for (int i = 0; i <= Z; i++) {
-		nsum += n[i];
+		sum += n[i];
 	}
 	for (int i = 0; i <= Z; i++) {
-		n[i] /= nsum;
+		n[i] /= sum;
 	}
+	return n;
 }
 
 void partial_state(int Z, real ne, real T, real& rho, real& ene, real& P) {
-	static const real c0 = two * std::pow(two * M_PI * me * kb / (h * h), 1.5);
+	static const real c0 = two * me * c * c;
+	const auto& ele = elements[Z];
 	real eta = electron_chemical_potential(ne, T);
-	real ne_spec = zero, nsum = one, n = one;
-	ene = zero;
-	const real c1 = c0 * std::pow(T, 1.5) / ne;
-	for (int i = 0; i < Z; i++) {
-		n *= c1 * elements[Z].saha(i, T);
-		nsum += n;
-		ne_spec += real(i + 1) * n;
-		ene += elements[Z].e_i[i + 1] * n;
+	const real three_halfs = three / two;
+	auto ni = saha_ratios(Z, eta, ne, T);
+
+	real sum = zero;
+	for (int i = 1; i <= Z; i++) {
+		sum += real(i) * ni[i];
 	}
-	ne_spec /= nsum;
-	ene /= nsum;
-	n = ne / ne_spec;
-	ene *= n;
-	P = kb * n * T;
-	P += electron_pressure(eta, T);
-	ene += P * three / two + two * me * c * c * N_pos(eta, T);
-	rho = n * elements[Z].A * amu;
-	ene /= rho;
+	if (sum == zero) {
+		printf("zero ionization not allowed\n");
+		abort();
+	}
+	const real n = ne / sum;
+	for (int i = 0; i < Z; i++) {
+		ni[i] *= n;
+	}
+
+	const real npair = N_pos(eta, T);
+
+	real pnuc, pele;
+	real enuc, eele, eion;
+
+	rho = n * amu * ele.A + two * me * npair;
+	const real rhoinv = one / rho;
+
+	pnuc = kb * n * T;
+	pele = electron_pressure(eta, T);
+
+	enuc = three_halfs * pnuc * rhoinv;
+	eele = (three_halfs * enuc + c0 * npair) * rhoinv;
+	eion = zero;
+	for (int i = 0; i <= Z; i++) {
+		eion += ni[i] * ele.ionization_energy(i, ne, T) * rhoinv;
+	}
+
+	ene = enuc + eele + eion;
+	P = pnuc + pele;
+
 }
 
 int main() {
@@ -242,9 +263,10 @@ int main() {
 		const real p = electron_pressure(eta, beta);
 		const real e1 = eta;
 		const real rho = amu * 0.75 * x;
-		const real e2 = 10.0*rho;
-		const real e3 = 2.17e-11/(kb*T);
-		std::printf("%e %e %e %e %e\n", rho, -e1, e2, -e3, std::exp(e2 -e1-e3) );
+		const real e2 = 10.0 * rho;
+		const real e3 = 2.17e-11 / (kb * T);
+		std::printf("%e %e %e %e %e\n", rho, -e1, e2, -e3,
+				std::exp(e2 - e1 - e3));
 	}
 	return 0;
 }
