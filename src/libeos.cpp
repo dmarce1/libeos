@@ -87,7 +87,7 @@ real dfd_deta(const real k, const real eta, const real beta) {
 }
 
 real N_ele(real eta, real beta) {
-	static const real c0 = real(32) * std::atan(1) * std::sqrt(2)
+	static const real c0 = real(8) * M_PI * std::sqrt(2)
 			* std::pow(me * c / h, three);
 	const real f1 = fd(one / two, eta, beta);
 	const real f2 = fd(three / two, eta, beta);
@@ -95,7 +95,7 @@ real N_ele(real eta, real beta) {
 }
 
 real dN_ele_deta(real eta, real beta) {
-	static const real c0 = real(32) * std::atan(1) * std::sqrt(2)
+	static const real c0 = real(8) * M_PI * std::sqrt(2)
 			* std::pow(me * c / h, three);
 	const real df1_deta = dfd_deta(one / two, eta, beta);
 	const real df2_deta = dfd_deta(three / two, eta, beta);
@@ -103,12 +103,21 @@ real dN_ele_deta(real eta, real beta) {
 }
 
 real N_pos(real eta, real beta) {
-	static const real c0 = real(32) * std::atan(1) * std::sqrt(2)
+	static const real c0 = real(8) * M_PI * std::sqrt(2)
 			* std::pow(me * c / h, three);
 	const real eta2 = -eta - two / beta;
 	const real f1 = fd(one / two, eta2, beta);
 	const real f2 = fd(three / two, eta2, beta);
 	return c0 * std::pow(beta, 1.5) * (f1 + beta * f2);
+}
+
+real dN_pos_deta(real eta, real beta) {
+	static const real c0 = real(8) * M_PI * std::sqrt(2)
+			* std::pow(me * c / h, three);
+	const real eta2 = -eta - two / beta;
+	const real df1_deta = -dfd_deta(one / two, eta2, beta);
+	const real df2_deta = -dfd_deta(three / two, eta2, beta);
+	return c0 * std::pow(beta, 1.5) * (df1_deta + beta * df2_deta);
 }
 
 real electron_pressure(real eta, real beta) {
@@ -128,14 +137,6 @@ real electron_pressure(real eta, real beta) {
 	return pele + ppos;
 }
 
-real dN_pos_deta(real eta, real beta) {
-	static const real c0 = real(32) * std::atan(1) * std::sqrt(2)
-			* std::pow(me * c / h, three);
-	const real eta2 = -eta - two / beta;
-	const real df1_deta = -dfd_deta(one / two, eta2, beta);
-	const real df2_deta = -dfd_deta(three / two, eta2, beta);
-	return c0 * std::pow(beta, 1.5) * (df1_deta + beta * df2_deta);
-}
 
 real electron_chemical_potential(real ne, real T) {
 	const real beta = (kb * T) / (me * c * c);
@@ -159,13 +160,14 @@ real electron_chemical_potential(real ne, real T) {
 		} else {
 			err = std::abs(deta / eta);
 		}
-		printf("%16.10e %16.10e %16.10e %16.10e %16.10e \n", double(err),
-				double(eta), double(f), double(deta), double(df_deta));
+		//printf("%16.10e %16.10e %16.10e %16.10e %16.10e \n", double(err),
+		//		double(eta), double(f), double(deta), double(df_deta));
 	} while (err > 1.0e-12);
 	return eta;
 }
 
 std::vector<real> saha_ratios(int Z, real ne, real T) {
+	static const real c0 = two * std::pow(two * M_PI * me * kb / (h * h), 1.5);
 	std::vector<real> n(Z + 1);
 	std::vector<real> r(Z);
 	bool all_le1 = true;
@@ -231,9 +233,16 @@ void partial_state(int Z, real ne, real T, real& rho, real& ene, real& P) {
 }
 
 int main() {
-	for (real x = 1.0e36; x < 1.0e+40; x *= 10.0) {
-		std::printf("%e %e\n", double(x),
-				double(electron_chemical_potential(x, 10000000.0)));
+	for (real x = 1.0; x < 1.0e+40; x *= 10.0) {
+		const real T = 1000.0;
+		const real c0 = two * std::pow(two * M_PI * me * kb / (h * h), 1.5);
+		const real beta = kb * T / (me * c * c);
+		const real eta = double(electron_chemical_potential(x, 1000.0));
+		const real mu = kb * T * eta;
+		const real p = electron_pressure(eta, beta);
+		const real e1 = std::exp(-eta);
+		const real e2 = c0 * std::pow(T, 1.5) / x;
+		std::printf("%e %e %e %e %e\n", x, e1, e2, e1 / e2, p / kb / T / x);
 	}
 	return 0;
 }
