@@ -43,12 +43,12 @@ real dN_pos_deta(real eta, real beta) {
 	return c0 * std::pow(beta, 1.5) * (df1_deta + beta * df2_deta);
 }
 
-real electron_pressure(real eta, real beta) {
+real electron_state(real eta, real beta, real& pressure, real& energy) {
 	static const real c0 = real(64) * std::atan(1) * std::sqrt(2)
 			* std::pow(me * c / h, three) / real(3) * me * c * c;
 	const real eta2 = -eta - two / beta;
 
-	real pele, ppos;
+	real pele, ppos, eele, epos;
 
 	const real f1 = FermiDirac(three / two, eta, beta);
 	const real f2 = FermiDirac(five / two, eta, beta);
@@ -57,11 +57,14 @@ real electron_pressure(real eta, real beta) {
 
 	pele = c0 * std::pow(beta, five / two) * (f1 + beta / two * f2);
 	ppos = c0 * std::pow(beta, five / two) * (f3 + beta / two * f4);
-	return pele + ppos;
+	eele = 1.5 * c0 * std::pow(beta, five / two) * (f1 + beta * f2);
+	epos = 1.5 * c0 * std::pow(beta, five / two) * (f3 + beta * f4);
+	pressure = pele + ppos;
+	energy = eele + epos;
 }
 
-real electron_chemical_potential(real ne, real T) {
-	const real beta = (kb * T) / (me * c * c);
+real electron_chemical_potential(real ne, real beta) {
+	const real T = beta * me * c * c / kb;
 	const auto F = [ne,beta]( real eta ) {
 		return ne - (N_ele(eta,beta)-N_pos(eta,beta));
 	};
@@ -75,13 +78,14 @@ real electron_chemical_potential(real ne, real T) {
 	static const real c0 = real(8) * M_PI * std::sqrt(2)
 			* std::pow(me * c / h, three) * std::pow(beta, 1.5);
 	const real eta1 = std::pow(ne * 1.5 / c0, two / three);
-	const real eta2 = std::pow(18.0,1.0/6.0) * std::pow(ne,1.0/3.0) * std::pow(beta,-.5) * std::pow(c0,-1.0/3.0);
+	const real eta2 = std::pow(18.0, 1.0 / 6.0) * std::pow(ne, 1.0 / 3.0)
+			* std::pow(beta, -.5) * std::pow(c0, -1.0 / 3.0);
 	real eta_guess;
 	if (eta0 < zero) {
 		eta_guess = eta0;
 	} else {
 		double l = 1.5;
-		eta_guess = std::pow(std::pow(eta1,-l) + std::pow(eta2,-l),-1.0/l);
+		eta_guess = std::pow(std::pow(eta1, -l) + std::pow(eta2, -l), -1.0 / l);
 	}
 	real eta = eta_guess;
 	real f, deta, err;
@@ -95,7 +99,7 @@ real electron_chemical_potential(real ne, real T) {
 			err = std::abs(deta / eta);
 		}
 		eta += deta;
-	} while (err > 1.0e-12);
+	} while (err > 1.0e-12 && std::abs(deta) > 1.0e-14 );
 	return eta;
 }
 
@@ -140,44 +144,62 @@ std::vector<real> saha_ratios(int Z, real ne, real T) {
 	for (int i = 0; i <= Z; i++) {
 		n[i] /= nsum;
 	}
+	return n;
 }
 
-void partial_state(int Z, real ne, real T, real& rho, real& ene, real& P) {
-	static const real c0 = two * std::pow(two * M_PI * me * kb / (h * h), 1.5);
-	real eta = electron_chemical_potential(ne, T);
-	real ne_spec = zero, nsum = one, n = one;
-	ene = zero;
-	const real c1 = c0 * std::pow(T, 1.5) / ne;
-	for (int i = 0; i < Z; i++) {
-		n *= c1 * elements[Z].saha(i, T);
-		nsum += n;
-		ne_spec += real(i + 1) * n;
-		ene += elements[Z].e_i[i + 1] * n;
+struct single_state {
+	int Z;
+	real ne;
+	real ni;
+	real T;
+	real p;
+	real e;
+	real eta;
+	single_state(int _Z, real _ne, real _T, bool fully_ionized = false) {
+		Z = _Z;
+		ne = _ne;
+		T = _T;
+		real p_ele;
+		real e_ele;
+		real p_ion;
+		real e_ion;
+		real e_exc;
+		const real beta = kb * T / (me * c * c);
+		eta = electron_chemical_potential(ne, beta);
+		electron_state(eta, beta, p_ele, e_ele);
+		auto n = saha_ratios(Z, ne, T);
+		printf( "---%e %e %e | %e %e\n", n[0], n[1], n[2]);
+		real ne_per_n = zero;
+		e_exc = zero;
+		if (!fully_ionized) {
+			for (int i = 0; i < Z; i++) {
+				ne_per_n += real(i) * n[i];
+				e_exc += elements[Z].e_i[i] * n[i];
+			}
+			ni = ne / ne_per_n;
+			e_exc *= ni;
+		} else {
+			ni = ne / Z;
+		}
+		p_ion = kb * ni * T;
+		e_ion = 1.5 * p_ion;
+		e = e_ele + e_ion + e_exc;
+		p = p_ele + p_ion;
 	}
-	ne_spec /= nsum;
-	ene /= nsum;
-	n = ne / ne_spec;
-	ene *= n;
-	P = kb * n * T;
-	P += electron_pressure(eta, T);
-	ene += P * three / two + two * me * c * c * N_pos(eta, T);
-	rho = n * elements[Z].A * amu;
-	ene /= rho;
-}
+};
 
 int main() {
-	for (real x = 1; x < 1.0e+39; x *= 10.0) {
-		const real T = 1e+3;
-		const real c0 = two * std::pow(two * M_PI * me * kb / (h * h), 1.5);
-		const real beta = kb * T / (me * c * c);
-		const real eta = double(electron_chemical_potential(x, T));
-		const real mu = kb * T * eta;
-		const real p = electron_pressure(eta, beta);
-		const real e1 = eta;
-		const real rho = amu * 0.75 * x;
-		const real e2 = 10.0 * rho;
-		const real e3 = 2.17e-11 / (kb * T);
-		std::printf("%e %e %16.12e\n", rho, x, eta);
+	const real rho_min = 1.0e-10;
+	const real rho_max = 1.0e+0;
+	const real T_min = 1.0e+0;
+	const real T_max = 1.0e+9;
+
+	for (real rho = rho_min; rho < rho_max; rho *= 10.0) {
+		for (real T = T_min; T < T_max; T *= 10.0) {
+			single_state s(2, rho / (2*amu), T, false);
+			printf("%e %e %e %e %e %e %e\n", rho, s.T, s.ni, s.ne, s.eta, s.p,
+					s.e);
+		}
 	}
 	return 0;
 }

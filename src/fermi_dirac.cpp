@@ -3,10 +3,12 @@
 #include <numeric>
 #include <cmath>
 #include <functional>
+#include "physcon.hpp"
 #include <vector>
 #include <omp.h>
 
 constexpr int N = 100;
+
 
 constexpr real quadrature_weights[N] = { 7.3463449050567173E-4,
 		0.0017093926535181052395, 0.0026839253715534824194,
@@ -166,6 +168,24 @@ real integrate(const std::function<real(real)>& f, real a, real b, int n) {
 
 constexpr real width = 30.0;
 int M = 1000;
+
+real fd_ne(real eta, real beta) {
+	real w = std::max(width, 1.0e-10 * eta);
+	real a = 0.0;
+	real b = std::max(w, eta + w);
+	const real c0 = real(8) * M_PI * std::sqrt(2)
+			* std::pow(me * c / h, three) * std::pow(beta,1.5);
+	const auto func = [eta,beta](real x ) {
+		const real a = std::sqrt(x + 0.5 * x * x * beta);
+		const real b = (1.0 + x * beta);
+		const real c = std::sinh(eta+1.0/beta) * 0.5;
+		const real d = std::cosh(eta+1.0/beta) + std::cosh(x+1.0/beta);
+		return a * b * c / d;
+	};
+	return integrate(func, a, b, M);
+
+
+}
 
 real FermiDirac(real k, real eta, real beta) {
 	real w = std::max(width, 1.0e-10 * eta);
