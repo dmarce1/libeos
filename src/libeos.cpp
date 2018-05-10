@@ -1,6 +1,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <memory>
 #include <functional>
 #include <vector>
 
@@ -30,31 +31,43 @@ real N_pos(real eta, real beta) {
 	static const real c0 = real(8) * M_PI * std::sqrt(2)
 			* std::pow(me * c / h, three);
 	const real eta2 = -eta - two / beta;
-	const real f1 = FermiDirac(one / two, eta2, beta);
-	const real f2 = FermiDirac(three / two, eta2, beta);
-	return c0 * std::pow(beta, 1.5) * (f1 + beta * f2);
+	if (eta2 > -200.0) {
+		const real f1 = FermiDirac(one / two, eta2, beta);
+		const real f2 = FermiDirac(three / two, eta2, beta);
+		return c0 * std::pow(beta, 1.5) * (f1 + beta * f2);
+	} else {
+		return 0.0;
+	}
 }
 
 real dN_pos_deta(real eta, real beta) {
 	static const real c0 = real(8) * M_PI * std::sqrt(2)
 			* std::pow(me * c / h, three);
 	const real eta2 = -eta - two / beta;
-	const real df1_deta = -dFermiDirac_deta(one / two, eta2, beta);
-	const real df2_deta = -dFermiDirac_deta(three / two, eta2, beta);
-	return c0 * std::pow(beta, 1.5) * (df1_deta + beta * df2_deta);
+	if (eta2 > -200.0) {
+		const real df1_deta = -dFermiDirac_deta(one / two, eta2, beta);
+		const real df2_deta = -dFermiDirac_deta(three / two, eta2, beta);
+		return c0 * std::pow(beta, 1.5) * (df1_deta + beta * df2_deta);
+	} else {
+		return 0.0;
+	}
 }
 
-real electron_state(real eta, real beta, real& pressure, real& energy) {
+void electron_state(real eta, real beta, real& pressure, real& energy) {
 	static const real c0 = real(64) * std::atan(1) * std::sqrt(2)
 			* std::pow(me * c / h, three) / real(3) * me * c * c;
 	const real eta2 = -eta - two / beta;
 
 	real pele, ppos, eele, epos;
-
+	real f3, f4;
 	const real f1 = FermiDirac(three / two, eta, beta);
 	const real f2 = FermiDirac(five / two, eta, beta);
-	const real f3 = FermiDirac(three / two, eta2, beta);
-	const real f4 = FermiDirac(five / two, eta2, beta);
+	if (eta2 > -200.0) {
+		f3 = FermiDirac(three / two, eta2, beta);
+		f4 = FermiDirac(five / two, eta2, beta);
+	} else {
+		f3 = f4 = 0.0;
+	}
 
 	pele = c0 * std::pow(beta, five / two) * (f1 + beta / two * f2);
 	ppos = c0 * std::pow(beta, five / two) * (f3 + beta / two * f4);
@@ -82,6 +95,7 @@ real electron_chemical_potential(real ne, real beta) {
 	const real eta2 = std::pow(18.0, 1.0 / 6.0) * std::pow(ne, 1.0 / 3.0)
 			* std::pow(beta, -.5) * std::pow(c0, -1.0 / 3.0);
 	real eta_guess;
+	real min_eta = -1.0 / beta;
 	if (eta0 < zero) {
 		eta_guess = eta0;
 	} else {
@@ -90,7 +104,11 @@ real electron_chemical_potential(real ne, real beta) {
 	}
 	real eta = eta_guess;
 	real f, deta, err;
+	int dir = 0;
+	int last_dir = 0;
+	double w = 1.0;
 	do {
+		last_dir = dir;
 		f = F(eta);
 		real df_deta = dF_deta(eta);
 		deta = -f / df_deta;
@@ -99,20 +117,29 @@ real electron_chemical_potential(real ne, real beta) {
 		} else {
 			err = std::abs(deta / eta);
 		}
-		eta += deta;
+		dir = deta > zero ? +1 : -1;
+		if (dir * last_dir == -1) {
+			w *= 0.99;
+		}
+		real eta0 = eta + w * deta;
+		eta = std::max(eta0, (eta + min_eta) / 2.0);
 	} while (err > 1.0e-12 && std::abs(deta) > 1.0e-14);
+//	printf( "%e %e %e\n", ne, T, eta);
 	return eta;
 }
 
 std::vector<real> saha_ratios(int Z, real ne, real T) {
+	const real mu1 = electron_chemical_potential(ne, kb * T / me / c / c);
 	static const real c0 = two * std::pow(two * M_PI * me * kb / (h * h), 1.5);
 	std::vector<real> n(Z + 1);
 	std::vector<real> r(Z);
 	bool all_le1 = true;
 	bool all_ge1 = true;
 	const real c1 = c0 * std::pow(T, 1.5) / ne;
+	real mu2 = -std::log(c1);
+	printf("%e %e %e %e \n", ne, T, mu1, mu2);
 	for (int i = 0; i < Z; i++) {
-		r[i] = c1 * elements[Z].saha(i, T);
+		r[i] = std::exp(-mu1) * elements[Z].saha(i, T);
 		all_le1 = all_le1 && (r[i] <= one);
 		all_ge1 = all_le1 && (r[i] >= one);
 	}
@@ -148,86 +175,113 @@ std::vector<real> saha_ratios(int Z, real ne, real T) {
 	return n;
 }
 
-struct single_state {
-	int Z;
-	real ne;
-	real ni;
-	real T;
-	real p;
-	real e;
-	real eta;
-	single_state(int _Z, real _ne, real _T, bool fully_ionized = false) {
-		Z = _Z;
-		ne = _ne;
-		T = _T;
-		real p_ele;
-		real e_ele;
-		real p_ion;
-		real e_ion;
-		real e_exc;
-		const real beta = kb * T / (me * c * c);
-		eta = electron_chemical_potential(ne, beta);
-		electron_state(eta, beta, p_ele, e_ele);
-		auto n = saha_ratios(Z, ne, T);
-		real ne_per_n = zero;
-		e_exc = zero;
-		if (!fully_ionized) {
-			for (int i = 0; i < Z; i++) {
-				ne_per_n += real(i) * n[i];
-				e_exc += elements[Z].e_i[i] * n[i];
-			}
-			ni = ne / ne_per_n;
-			e_exc *= ni;
-		} else {
-			ni = ne / Z;
-		}
-		p_ion = kb * ni * T;
-		e_ion = 1.5 * p_ion;
-		e = e_ele + e_ion + e_exc;
-		p = p_ele + p_ion;
-	}
-};
-
-class ionization_fraction_table {
+class electron_table {
 private:
-	int Z;
-	const std::function<real(real, real)> gen_func;
-	const bicubic_table table;
-	static constexpr real ne_min = 1.0;
-	static constexpr real ne_max = 1.0e+40;
-	static constexpr real T_min = 1.0e+0;
+	static constexpr real ne_min = 1.0e-4;
+	static constexpr real ne_max = 1.0e+35;
+	static constexpr real T_min = 1.0e+1;
 	static constexpr real T_max = 1.0e+12;
-	static constexpr int NT = 100;
-	static constexpr int NE = 100;
+	std::shared_ptr<bicubic_table> mu_table;
+	std::shared_ptr<bicubic_table> p_table;
 public:
-	ionization_fraction_table(int z) :
-			Z(z), gen_func([this](real x, real y) {
-				const real ne = std::exp(x);
-				const real T = std::exp(y);
+	electron_table() {
+		/*
+		 mu_table = std::make_shared<bicubic_table>([](real log_ne, real log_T) {
+		 const real T = std::exp(log_T);
+		 const real ne = std::exp(log_ne);
+		 const real beta = kb * T / me / c / c;
+		 return electron_chemical_potential(ne,beta);
+		 }, std::log(ne_min), std::log(ne_max), std::log(T_min), std::log(T_max),
+		 1.0e-2);
 
-				auto n = saha_ratios(Z,ne,T);
-				real zbar = zero;
-				for( int i = 1; i <=Z; i++ ) {
-					zbar += n[i] * real(i);
-				}
-				const real ion_frac = zbar / Z;
-				const real rc = ion_frac;;
-		//		printf( "%e %e %e\n", ne, T, ion_frac);
-				return rc;
-			}), table(gen_func, std::log(ne_min), std::log(ne_max), std::log(T_min), std::log(T_max), 5.0e-2) {
-		FILE* fp = fopen( "eos.dat", "wt" );
-		for( real T = T_min; T <= T_max; T *= 1.1 ) {
-			for( real ne = ne_min; ne < ne_max; ne *= 1.1 ) {
-				fprintf( fp, "%e %e %e\n", ne, T, table(std::log(ne),std::log(T)));
+		 */
+		p_table = std::make_shared<bicubic_table>([](real log_ne, real log_T) {
+			const real T = std::exp(log_T);
+			const real ne = std::exp(log_ne);
+			const real beta = kb * T / me / c / c;
+			const real eta= electron_chemical_potential(ne,beta);
+			real p, e;
+			electron_state(eta,beta,p,e);
+			return std::log(p);
+		}, std::log(ne_min), std::log(ne_max), std::log(T_min), std::log(T_max),
+				1.0e-3);
+
+		FILE* fp = fopen("electron.dat", "wt");
+		for (real ne = ne_min; ne < ne_max; ne *= 2.0) {
+			for (real T = T_min; T < T_max; T *= 2.0) {
+				real p, e, eta;
+				eta = electron_chemical_potential(ne, kb * T / me / c / c);
+				const real beta = kb * T / me / c / c;
+				electron_state(eta, beta, p, e);
+				fprintf(fp, "%e %e %e %e\n", ne, T,
+						std::exp((*p_table)(std::log(ne), std::log(T))), p);
 			}
 		}
 		fclose(fp);
-
 	}
 };
 
+class saha_table {
+private:
+	int Z;
+	std::shared_ptr<bicubic_table> Z_table;
+	std::shared_ptr<bicubic_table> e_table;
+	static constexpr real ne_min = 1.0e-4;
+	static constexpr real ne_max = 1.0e+35;
+	static constexpr real T_min = 1.0e+1;
+	static constexpr real T_max = 1.0e+12;
+public:
+	saha_table(int z) {
+		Z = z;
+		std::function<real(real, real)> Z_func([this](real x, real y) {
+			const real ne = std::exp(x);
+			const real T = std::exp(y);
+			auto n = saha_ratios(Z,ne,T);
+			real zbar = zero;
+			for( int i = 1; i <=Z; i++ ) {
+				zbar += n[i] * real(i);
+			}
+			return zbar;
+		});
+		std::function<real(real, real)> e_func([this](real x, real y) {
+			const real ne = std::exp(x);
+			const real T = std::exp(y);
+			auto n = saha_ratios(Z,ne,T);
+			real etot = zero;
+			for( int i = 0; i <=Z; i++ ) {
+				etot += n[i] * elements[Z].e_i[i];
+			}
+			return etot;
+		});
+		Z_table = std::make_shared<bicubic_table>(Z_func, std::log(ne_min),
+				std::log(ne_max), std::log(T_min), std::log(T_max), 1.0e-6);
+		e_table = std::make_shared<bicubic_table>(e_func, std::log(ne_min),
+				std::log(ne_max), std::log(T_min), std::log(T_max), 1.0e-6);
+		FILE* fp = fopen("eos.dat", "wt");
+		for (real ne = ne_min; ne < ne_max; ne *= 1.1) {
+			for (real T = T_min; T < T_max; T *= 1.1) {
+				fprintf(fp, "%e %e %e %e\n", ne, T,
+						(*Z_table)(std::log(ne), std::log(T)),
+						(*e_table)(std::log(ne), std::log(T)));
+			}
+		}
+		fclose(fp);
+	}
+	void save(FILE* fp) const {
+		Z_table->save(fp);
+	}
+	void load(FILE* fp) {
+		Z_table = std::make_shared<bicubic_table>(fp);
+	}
+
+};
+
+#include <fenv.h>
+
 int main() {
-	ionization_fraction_table(28);
+	feenableexcept(FE_OVERFLOW);
+//	printf( "%e\n", electron_chemical_potential(1.000000e+35, kb * 1.000000e+01/me/c/c));
+	electron_table();
 	return 0;
 }
 

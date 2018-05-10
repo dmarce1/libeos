@@ -127,6 +127,7 @@ real integrate(const std::function<real(real)>& f, real a, real b) {
 
 std::function<real(real)> fd(real k, real eta, real beta) {
 	return [k,eta,beta]( real x ) {
+//		printf( "%e %e %e\n", x, eta, x - eta);
 		return std::pow(x,k) * std::sqrt(1.0 + beta * x / 2.0) / (std::exp(x-eta)+1.0);
 	};
 }
@@ -167,7 +168,7 @@ real integrate(const std::function<real(real)>& f, real a, real b, int n) {
 }
 
 constexpr real width = 30.0;
-int M = 1000;
+int M = 100;
 
 real fd_ne(real eta, real beta) {
 	real w = std::max(width, 1.0e-10 * eta);

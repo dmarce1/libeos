@@ -89,9 +89,9 @@ bicubic_table::bicubic_table(const std::function<real(real, real)>& func,
 		real _xmin, real _xmax, real _ymin, real _ymax, real toler,
 		const char* filename) :
 		xmin(_xmin), xmax(_xmax), ymin(_ymin), ymax(_ymax), NX(), NY(), C() {
-	printf( "%e %e %e %e\n", xmin, xmax, ymin, ymax);
-	int nx = 16;
-	int ny = 16;
+	printf("%e %e %e %e\n", xmin, xmax, ymin, ymax);
+	int nx = 4;
+	int ny = 4;
 	real err;
 	bicubic_table table(func, xmin, xmax, ymin, ymax, nx, ny);
 	err = table.Linf;
@@ -101,17 +101,13 @@ bicubic_table::bicubic_table(const std::function<real(real, real)>& func,
 		if (test_x.Linf < test_y.Linf) {
 			nx *= 2;
 			err = test_x.Linf;
-			if (err <= toler) {
-				*this = test_x;
-			}
+			*this = std::move(test_x);
 		} else {
 			ny *= 2;
 			err = test_y.Linf;
-			if (err <= toler) {
-				*this = test_y;
-			}
+			*this = std::move(test_y);
 		}
-		printf("%i %i %e\n", err, nx, ny);
+		printf(" %e %e %e %i %i\n", L1, L2, Linf, nx, ny);
 	} while (err >= toler);
 	if (filename) {
 		FILE* fp = fopen(filename, "wt");
@@ -163,20 +159,22 @@ bicubic_table::bicubic_table(const std::function<real(real, real)>& func,
 	L1 = L2 = 0.0;
 	Linf = 0.0;
 	int NS = NX * NY;
+	real norm = 0.0;
 	for (int i = 0; i < NS; i++) {
 		real x = xmin + rand1() * (xmax - xmin);
 		real y = ymin + rand1() * (ymax - ymin);
 		real exact = func(x, y);
 		real interp = (*this)(x, y);
+		norm += std::abs(exact);
 		real dif = std::abs(exact - interp);
 		L1 += dif;
 		L2 += dif * dif;
 		Linf = std::max(Linf, dif);
 	}
-	L1 /= NS;
-	L2 /= NS;
+	L1 /= norm;
+	L2 /= norm * norm;
 	L2 = std::sqrt(L2);
-//	printf("---%e %e %e\n", L1, L2, Linf);
+	Linf /= norm;
 
 }
 
@@ -186,7 +184,6 @@ bool bicubic_table::in_range(real x, real y) const {
 	}
 	return true;
 }
-
 
 real bicubic_table::operator()(real x, real y) const {
 	int xi = std::min(std::max(1, int((x - xmin) / dx)), NX - 2);
