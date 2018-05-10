@@ -4,6 +4,7 @@
 #include <functional>
 #include <vector>
 
+#include "bicubic.hpp"
 #include "elements.hpp"
 #include "physcon.hpp"
 #include "real.hpp"
@@ -99,7 +100,7 @@ real electron_chemical_potential(real ne, real beta) {
 			err = std::abs(deta / eta);
 		}
 		eta += deta;
-	} while (err > 1.0e-12 && std::abs(deta) > 1.0e-14 );
+	} while (err > 1.0e-12 && std::abs(deta) > 1.0e-14);
 	return eta;
 }
 
@@ -168,7 +169,6 @@ struct single_state {
 		eta = electron_chemical_potential(ne, beta);
 		electron_state(eta, beta, p_ele, e_ele);
 		auto n = saha_ratios(Z, ne, T);
-		printf( "---%e %e %e | %e %e\n", n[0], n[1], n[2]);
 		real ne_per_n = zero;
 		e_exc = zero;
 		if (!fully_ionized) {
@@ -188,19 +188,46 @@ struct single_state {
 	}
 };
 
-int main() {
-	const real rho_min = 1.0e-10;
-	const real rho_max = 1.0e+0;
-	const real T_min = 1.0e+0;
-	const real T_max = 1.0e+9;
+class ionization_fraction_table {
+private:
+	int Z;
+	const std::function<real(real, real)> gen_func;
+	const bicubic_table table;
+	static constexpr real ne_min = 1.0;
+	static constexpr real ne_max = 1.0e+40;
+	static constexpr real T_min = 1.0e+0;
+	static constexpr real T_max = 1.0e+12;
+	static constexpr int NT = 100;
+	static constexpr int NE = 100;
+public:
+	ionization_fraction_table(int z) :
+			Z(z), gen_func([this](real x, real y) {
+				const real ne = std::exp(x);
+				const real T = std::exp(y);
 
-	for (real rho = rho_min; rho < rho_max; rho *= 10.0) {
-		for (real T = T_min; T < T_max; T *= 10.0) {
-			single_state s(2, rho / (2*amu), T, false);
-			printf("%e %e %e %e %e %e %e\n", rho, s.T, s.ni, s.ne, s.eta, s.p,
-					s.e);
+				auto n = saha_ratios(Z,ne,T);
+				real zbar = zero;
+				for( int i = 1; i <=Z; i++ ) {
+					zbar += n[i] * real(i);
+				}
+				const real ion_frac = zbar / Z;
+				const real rc = ion_frac;;
+		//		printf( "%e %e %e\n", ne, T, ion_frac);
+				return rc;
+			}), table(gen_func, std::log(ne_min), std::log(ne_max), std::log(T_min), std::log(T_max), 5.0e-2) {
+		FILE* fp = fopen( "eos.dat", "wt" );
+		for( real T = T_min; T <= T_max; T *= 1.1 ) {
+			for( real ne = ne_min; ne < ne_max; ne *= 1.1 ) {
+				fprintf( fp, "%e %e %e\n", ne, T, table(std::log(ne),std::log(T)));
+			}
 		}
+		fclose(fp);
+
 	}
+};
+
+int main() {
+	ionization_fraction_table(28);
 	return 0;
 }
 

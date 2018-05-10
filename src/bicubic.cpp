@@ -86,6 +86,45 @@ real rand1() {
 }
 
 bicubic_table::bicubic_table(const std::function<real(real, real)>& func,
+		real _xmin, real _xmax, real _ymin, real _ymax, real toler,
+		const char* filename) :
+		xmin(_xmin), xmax(_xmax), ymin(_ymin), ymax(_ymax), NX(), NY(), C() {
+	printf( "%e %e %e %e\n", xmin, xmax, ymin, ymax);
+	int nx = 16;
+	int ny = 16;
+	real err;
+	bicubic_table table(func, xmin, xmax, ymin, ymax, nx, ny);
+	err = table.Linf;
+	do {
+		bicubic_table test_x(func, xmin, xmax, ymin, ymax, 2 * nx, ny);
+		bicubic_table test_y(func, xmin, xmax, ymin, ymax, nx, 2 * ny);
+		if (test_x.Linf < test_y.Linf) {
+			nx *= 2;
+			err = test_x.Linf;
+			if (err <= toler) {
+				*this = test_x;
+			}
+		} else {
+			ny *= 2;
+			err = test_y.Linf;
+			if (err <= toler) {
+				*this = test_y;
+			}
+		}
+		printf("%i %i %e\n", err, nx, ny);
+	} while (err >= toler);
+	if (filename) {
+		FILE* fp = fopen(filename, "wt");
+		for (real x = xmin + dx / 2.0; x < xmax; x += dx) {
+			for (real y = ymin + dy / 2.0; y < ymax; y += dy) {
+				fprintf(fp, "%e %e %e %e\n", x, y, (*this)(x, y), func(x, y));
+			}
+		}
+		fclose(fp);
+	}
+}
+
+bicubic_table::bicubic_table(const std::function<real(real, real)>& func,
 		real _xmin, real _xmax, real _ymin, real _ymax, int _NX, int _NY) :
 		xmin(_xmin), xmax(_xmax), ymin(_ymin), ymax(_ymax), NX(_NX), NY(_NY), C(
 				_NX * _NY) {
@@ -122,22 +161,34 @@ bicubic_table::bicubic_table(const std::function<real(real, real)>& func,
 		}
 	}
 	L1 = L2 = 0.0;
+	Linf = 0.0;
 	int NS = NX * NY;
 	for (int i = 0; i < NS; i++) {
 		real x = xmin + rand1() * (xmax - xmin);
 		real y = ymin + rand1() * (ymax - ymin);
 		real exact = func(x, y);
 		real interp = (*this)(x, y);
-		L1 += std::abs(exact - interp);
-		L2 += std::pow(exact - interp, 2);
+		real dif = std::abs(exact - interp);
+		L1 += dif;
+		L2 += dif * dif;
+		Linf = std::max(Linf, dif);
 	}
 	L1 /= NS;
 	L2 /= NS;
 	L2 = std::sqrt(L2);
+//	printf("---%e %e %e\n", L1, L2, Linf);
 
 }
 
-real bicubic_table::operator()(real x, real y) {
+bool bicubic_table::in_range(real x, real y) const {
+	if (x < xmin || y < ymin || x >= xmax || y >= ymax) {
+		return false;
+	}
+	return true;
+}
+
+
+real bicubic_table::operator()(real x, real y) const {
 	int xi = std::min(std::max(1, int((x - xmin) / dx)), NX - 2);
 	int yi = std::min(std::max(1, int((y - ymin) / dy)), NY - 2);
 	if (x < xmin || y < ymin || x >= xmax || y >= ymax) {
