@@ -40,6 +40,8 @@ struct element_t {
 	}
 };
 
+const int NSPECIES = 29;
+
 element_t elements[29] = {
 {0,  0.0,   {{1}},                                                                {{0.0}}},
 {1,  1.0079,{{2, 1}},                                                             {{0.0, 13.59844}}},

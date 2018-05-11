@@ -4,6 +4,8 @@
 #include <memory>
 #include <functional>
 #include <vector>
+#include <cfenv>
+#include <limits>
 
 #include "bicubic.hpp"
 #include "elements.hpp"
@@ -276,12 +278,121 @@ public:
 
 };
 
+using saha_real = double;
+saha_real fast_saha(const std::vector<saha_real>& n,
+		std::vector<std::vector<saha_real>>& ni, saha_real T) {
+	static const real c0 = two * std::pow(two * M_PI * me * kb / (h * h), 1.5);
+	constexpr saha_real saha_zero = saha_real(0);
+	constexpr saha_real saha_one = saha_real(1);
+
+	constexpr saha_real huge = 1.0e+200;
+	constexpr saha_real large = 1.0e+20;
+	constexpr saha_real small = 1.0e-20;
+	constexpr saha_real tiny = 1.0e-200;
+
+	std::vector<std::vector<saha_real>> W;
+	ni.resize(NSPECIES);
+	W.resize(NSPECIES);
+	for (int i = 0; i < NSPECIES; i++) {
+		ni[i].resize(i + 1);
+		W[i].resize(i + 1);
+	}
+	saha_real& ne = ni[0][0];
+	saha_real ne_max = saha_zero;
+	for (int i = 1; i < NSPECIES; i++) {
+		ne_max += n[i] * i;
+	}
+	ne = ne_max * half;
+	saha_real ne_last, ne_next;
+	saha_real K = c0 * std::pow(T, 1.5);
+	real v;
+	for (int j = 1; j < NSPECIES; j++) {
+		W[j][0] = v = saha_one;
+		for (int i = 0; i < j; i++) {
+			v *= elements[j].saha(i, T);
+			if (v < huge) {
+				NULL;
+			} else {
+				for (int k = 0; k < i; k++) {
+					W[j][k] = saha_zero;
+				}
+				v = saha_one;
+			}
+			W[j][i + 1] = v;
+		}
+	}
+	std::vector<saha_real> ne_inv_pwr(NSPECIES);
+	do {
+		ne_last = ne;
+		saha_real nsum = saha_zero;
+		saha_real ne_inv = saha_one / ne;
+		const saha_real kone = K * ne_inv;
+
+		ne_inv_pwr[0] = saha_one;
+		for (int i = 1; i < NSPECIES; i++) {
+			ne_inv_pwr[i] = kone * ne_inv_pwr[i - 1];
+			if (ne_inv_pwr[i] < huge) {
+				NULL;
+			} else {
+				ne_inv_pwr[i] = huge;
+			}
+		}
+		for (int j = 1; j < NSPECIES; j++) {
+#pragma ivdep
+			for (int i = 0; i <= j; i++) {
+				ni[j][i] = W[j][i] * ne_inv_pwr[i];
+			}
+			nsum = ni[j][0];
+			for (int i = 1; i <= j; i++) {
+				nsum += ni[j][i];
+			}
+			const saha_real factor = n[j] / nsum;
+			for (int i = 0; i <= j; i++) {
+				ni[j][i] *= factor;
+			}
+		}
+		ne_next = saha_zero;
+		for (int j = 1; j < NSPECIES; j++) {
+			for (int i = 1; i <= j; i++) {
+				ne_next += i * ni[j][i];
+			}
+		}
+		const saha_real w = saha_real(1) / saha_real(10);
+		ne = ne_next * (saha_one - w) + w * ne;
+	} while (std::abs(ne - ne_last) / ne_max > 1.0e-12);
+	return ne / ne_max;
+}
+
 #include <fenv.h>
 
 int main() {
 	feenableexcept(FE_OVERFLOW);
-//	printf( "%e\n", electron_chemical_potential(1.000000e+35, kb * 1.000000e+01/me/c/c));
-	electron_table();
+	feenableexcept(FE_DIVBYZERO);
+
+	std::vector<saha_real> fracs(NSPECIES, 0.0);
+
+	fracs[2] = 1.0;
+
+	static constexpr real n_min = 1.0e-4;
+	static constexpr real n_max = 1.0e+35;
+	static constexpr real T_min = 1.0e+1;
+	static constexpr real T_max = 1.0e+12;
+	int count = 0;
+	for (real n = n_min; n < n_max; n *= 1.1) {
+		for (real T = T_min; T < T_max; T *= 1.1) {
+			std::vector<saha_real> N(NSPECIES);
+			std::vector<std::vector<saha_real>> Ni;
+			count++;
+			for (int i = 0; i < NSPECIES; i++) {
+				N[i] = n * fracs[i];
+			}
+			saha_real frac = fast_saha(N, Ni, saha_real(T));
+			fprintf( stdout, "%e %e %e\n", n, T, double(frac));
+		}
+	}
+	fprintf( stderr, "%i\n", count);
+	//	printf( "%e\n", electron_chemical_potential(1.000000e+35, kb * 1.000000e+01/me/c/c));
+//	electron_table();
 	return 0;
 }
 
