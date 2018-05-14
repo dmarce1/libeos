@@ -179,7 +179,10 @@ std::vector<real> saha_ratios(int Z, real ne, real T) {
 
 class electron_table {
 private:
-	static constexpr real ne_min = 1.0e-4;static constexpr real ne_max = 1.0e+35;static constexpr real T_min = 1.0e+1;static constexpr real T_max = 1.0e+12;
+	static constexpr real ne_min = 1.0e-4;
+	static constexpr real ne_max = 1.0e+35;
+	static constexpr real T_min = 1.0e+1;
+	static constexpr real T_max = 1.0e+12;
 	std::shared_ptr<bicubic_table> mu_table;
 	std::shared_ptr<bicubic_table> p_table;
 public:
@@ -194,18 +197,16 @@ public:
 		 1.0e-2);
 
 		 */
-		p_table =
-				std::make_shared < bicubic_table
-						> ([](real log_ne, real log_T) {
-							const real T = std::exp(log_T);
-							const real ne = std::exp(log_ne);
-							const real beta = kb * T / me / c / c;
-							const real eta= electron_chemical_potential(ne,beta);
-							real p, e;
-							electron_state(eta,beta,p,e);
-							return std::log(p);
-						}, std::log(ne_min), std::log(ne_max), std::log(T_min), std::log(
-								T_max), 1.0e-3);
+		p_table = std::make_shared<bicubic_table>([](real log_ne, real log_T) {
+			const real T = std::exp(log_T);
+			const real ne = std::exp(log_ne);
+			const real beta = kb * T / me / c / c;
+			const real eta= electron_chemical_potential(ne,beta);
+			real p, e;
+			electron_state(eta,beta,p,e);
+			return std::log(p);
+		}, std::log(ne_min), std::log(ne_max), std::log(T_min), std::log(T_max),
+				1.0e-3);
 
 		FILE* fp = fopen("electron.dat", "wt");
 		for (real ne = ne_min; ne < ne_max; ne *= 2.0) {
@@ -226,11 +227,15 @@ class saha_table {
 private:
 	int Z;
 	std::shared_ptr<bicubic_table> Z_table;
-	std::shared_ptr<bicubic_table> e_table;static constexpr real ne_min = 1.0e-4;static constexpr real ne_max = 1.0e+35;static constexpr real T_min = 1.0e+1;static constexpr real T_max = 1.0e+12;
+	std::shared_ptr<bicubic_table> e_table;
+	static constexpr real ne_min = 1.0e-4;
+	static constexpr real ne_max = 1.0e+35;
+	static constexpr real T_min = 1.0e+1;
+	static constexpr real T_max = 1.0e+12;
 public:
 	saha_table(int z) {
 		Z = z;
-		std::function < real(real, real) > Z_func([this](real x, real y) {
+		std::function<real(real, real)> Z_func([this](real x, real y) {
 			const real ne = std::exp(x);
 			const real T = std::exp(y);
 			auto n = saha_ratios(Z,ne,T);
@@ -240,7 +245,7 @@ public:
 			}
 			return zbar;
 		});
-		std::function < real(real, real) > e_func([this](real x, real y) {
+		std::function<real(real, real)> e_func([this](real x, real y) {
 			const real ne = std::exp(x);
 			const real T = std::exp(y);
 			auto n = saha_ratios(Z,ne,T);
@@ -250,14 +255,10 @@ public:
 			}
 			return etot;
 		});
-		Z_table =
-				std::make_shared < bicubic_table
-						> (Z_func, std::log(ne_min), std::log(ne_max), std::log(
-								T_min), std::log(T_max), 1.0e-6);
-		e_table =
-				std::make_shared < bicubic_table
-						> (e_func, std::log(ne_min), std::log(ne_max), std::log(
-								T_min), std::log(T_max), 1.0e-6);
+		Z_table = std::make_shared<bicubic_table>(Z_func, std::log(ne_min),
+				std::log(ne_max), std::log(T_min), std::log(T_max), 1.0e-6);
+		e_table = std::make_shared<bicubic_table>(e_func, std::log(ne_min),
+				std::log(ne_max), std::log(T_min), std::log(T_max), 1.0e-6);
 		FILE* fp = fopen("eos.dat", "wt");
 		for (real ne = ne_min; ne < ne_max; ne *= 1.1) {
 			for (real T = T_min; T < T_max; T *= 1.1) {
@@ -272,12 +273,10 @@ public:
 		Z_table->save(fp);
 	}
 	void load(FILE* fp) {
-		Z_table = std::make_shared < bicubic_table > (fp);
+		Z_table = std::make_shared<bicubic_table>(fp);
 	}
 
 };
-
-using saha_real = double;
 
 struct thermodynamic_data_t {
 	real p;
@@ -288,29 +287,47 @@ struct thermodynamic_data_t {
 	real de_dT;
 };
 
+void electron_eta(real ne, real T, real& eta, real& deta_dne, real& deta_dT) {
+	static const real c0 = two * std::pow(two * M_PI * me * kb / (h * h), 1.5);
+	eta = -std::log(c0) - three / two * std::log(T) + std::log(ne);
+	deta_dne = one / ne;
+	deta_dT = -three / two / T;
+}
+
 thermodynamic_data_t fast_saha2(const std::vector<real>& fracs, real rho,
 		real T) {
-	static const real c0 = two * std::pow(two * M_PI * me * kb / (h * h), 1.5);
-	saha_real K = c0 * std::pow(T, 1.5);
-	saha_real logK = std::log(K);
-	const saha_real huge = 1e+100;
-	const saha_real large = 1e+20;
+	const real huge = 1e+100;
+	const real large = 1e+20;
 	thermodynamic_data_t results;
 
-	std::vector < saha_real > N(NELE);
-	std::vector < std::vector<saha_real> > W(NELE);
+	real n = zero;
+	std::vector<real> N(NELE);
+	std::vector<std::vector<real> > W(NELE);
 
 	// Compute coefficient matrix
 	for (int i = 0; i < NELE; i++) {
 		const auto& ele = elements[i + 1];
-		W[i].resize(i + 2);
-		const saha_real this_rho = fracs[i] * rho;
+		const real this_rho = fracs[i] * rho;
 		N[i] = this_rho / (amu * ele.A);
+		n += N[i];
+	}
 
-		W[i][0] = saha_real(0);
-		real max_w = saha_real(0);
+	// Find maximum ne possible
+	real ne_max = real(0);
+	for (int i = 0; i < NELE; i++) {
+		ne_max += N[i] * real(i + 1);
+	}
+
+	real eta_max, dummy;
+	electron_eta(ne_max, T, eta_max, dummy, dummy);
+	// Compute coefficient matrix
+	for (int i = 0; i < NELE; i++) {
+		const auto& ele = elements[i + 1];
+		W[i].resize(i + 2);
+		W[i][0] = real(0);
+		real max_w = real(0);
 		for (int j = 0; j < i + 1; j++) {
-			W[i][j + 1] = W[i][j] + ele.log_saha(j, T) + logK;
+			W[i][j + 1] = W[i][j] + ele.log_saha(j, T) - eta_max;
 			max_w = std::max(max_w, W[i][j + 1]);
 		}
 		for (int j = 0; j <= i + 1; j++) {
@@ -319,83 +336,99 @@ thermodynamic_data_t fast_saha2(const std::vector<real>& fracs, real rho,
 
 	}
 
-	// Find maximum ne possible
-	saha_real ne_max = saha_real(0);
-	for (int i = 0; i < NELE; i++) {
-		ne_max += N[i] * saha_real(i + 1);
-	}
+	real ne = ne_max / real(2);
 
-	saha_real ne = ne_max / saha_real(2);
-
-	saha_real f, df_dne;
-	saha_real s0, s1, s2;
+	real f, df_dne;
+	real s0, s1, s2;
 
 	// N-R solve for ne
 	int iters = 0;
+	real ne_last;
 	do {
 		f = ne;
-		df_dne = saha_real(1);
+		df_dne = real(1);
+		real eta, deta_dne, deta_dT;
+		electron_eta(ne, T, eta, deta_dne, deta_dT);
+		const real exp_neta = std::exp(-eta + eta_max);
 		for (int i = 0; i < NELE; i++) {
-
-			s1 = s2 = saha_real(0);
-			s0 = saha_real(1);
-			auto ne_inv_pwr = saha_real(one);
+			s1 = s2 = real(0);
+			s0 = W[i][0];
+			real exp_n_neta = one;
 			for (int j = 1; j <= i + 1; j++) {
-				ne_inv_pwr /= ne;
-				const auto tmp = W[i][j] * ne_inv_pwr;
+				exp_n_neta *= exp_neta;
+				const auto tmp = W[i][j] * exp_n_neta;
 				s0 += tmp;
-				s1 += saha_real(j) * tmp;
-				s2 += saha_real(j * j) * tmp;
+				s1 += real(j) * tmp;
+				s2 += real(j * j) * tmp;
 			}
 
 			f -= N[i] * s1 / s0;
-			df_dne += (s2 / s0 - (s1 / s0) * (s1 / s0)) * (N[i] / ne);
+			df_dne += (s2 / s0 - (s1 / s0) * (s1 / s0)) * N[i] * deta_dne;
 		}
-		printf("%14e %14e %14e %14e\n", real(ne), real(f), real(df_dne),
-				real(ne / ne_max));
-		ne = std::min(
-				std::max(ne / saha_real(10), ne - f / df_dne),
-				(ne_max*0.1 + 0.9*ne));
+		printf("%14e %14e %14e %14e %14e %14e %14e\n", real(ne), real(f),
+				real(df_dne), real(ne / ne_max), s0, s1, s2);
+		ne_last = ne;
+		ne = std::min(std::max(ne / real(100), ne - f / df_dne),
+				(ne_max * 0.99 + 0.01 * ne));
 		iters++;
-		if (iters > 40) {
+		if (iters > 400) {
 			abort();
 		}
-	} while (std::abs(f) > 1.0e-16);
+	} while (std::abs(ne - ne_last) / ne_max > 1.0e-10);
+
+	real eta, deta_dne, deta_dT;
+	electron_eta(ne, T, eta, deta_dne, deta_dT);
+	real dne_dn = ne / n;
+	const real exp_neta = std::exp(-eta + eta_max);
+	for (int i = 0; i < NELE; i++) {
+		s1 = s2 = real(0);
+		s0 = real(1);
+		real exp_n_neta = one;
+		for (int j = 1; j <= i + 1; j++) {
+			exp_n_neta *= exp_neta;
+			const auto tmp = W[i][j] * exp_n_neta;
+			s0 += tmp;
+			s1 += real(j) * tmp;
+			s2 += real(j * j) * tmp;
+		}
+		dne_dn -= (s2 / s0 - (s1 / s0) * (s1 / s0)) * N[i] * deta_dne;
+	}
+	printf( "%e %e %e %e\n", n, ne, T, dne_dn);
 
 }
 
-saha_real fast_saha(const std::vector<saha_real>& n,
-		std::vector<std::vector<saha_real>>& ni, saha_real T) {
+real fast_saha(const std::vector<real>& n, std::vector<std::vector<real>>& ni,
+		real T) {
 	static const real c0 = two * std::pow(two * M_PI * me * kb / (h * h), 1.5);
 	constexpr
-	saha_real saha_zero = saha_real(0);
+	real saha_zero = real(0);
 	constexpr
-	saha_real saha_one = saha_real(1);
+	real saha_one = real(1);
 
 	constexpr
-	saha_real huge = 1.0e+200;
+	real huge = 1.0e+200;
 	constexpr
-	saha_real large = 1.0e+20;
+	real large = 1.0e+20;
 	constexpr
-	saha_real small = 1.0e-20;
+	real small = 1.0e-20;
 	constexpr
-	saha_real tiny = 1.0e-200;
+	real tiny = 1.0e-200;
 
-	std::vector < std::vector < saha_real >> W;
+	std::vector<std::vector<real>> W;
 	ni.resize(NSPECIES);
 	W.resize(NSPECIES);
 	for (int i = 0; i < NSPECIES; i++) {
 		ni[i].resize(i + 1);
 		W[i].resize(i + 1);
 	}
-	saha_real& ne = ni[0][0];
-	saha_real ne_max = saha_zero;
+	real& ne = ni[0][0];
+	real ne_max = saha_zero;
 	for (int i = 1; i < NSPECIES; i++) {
 		ne_max += n[i] * i;
 	}
 	ne = ne_max * half;
-	saha_real ne_last, ne_next;
-	saha_real K = c0 * std::pow(T, 1.5);
+	real ne_last, ne_next;
+	real K = c0 * std::pow(T, 1.5);
 	real v;
 	for (int j = 1; j < NSPECIES; j++) {
 		W[j][0] = v = saha_one;
@@ -412,12 +445,12 @@ saha_real fast_saha(const std::vector<saha_real>& n,
 			W[j][i + 1] = v;
 		}
 	}
-	std::vector<saha_real> ne_inv_pwr(NSPECIES);
+	std::vector<real> ne_inv_pwr(NSPECIES);
 	do {
 		ne_last = ne;
-		saha_real nsum = saha_zero;
-		saha_real ne_inv = saha_one / ne;
-		const saha_real kone = K * ne_inv;
+		real nsum = saha_zero;
+		real ne_inv = saha_one / ne;
+		const real kone = K * ne_inv;
 
 		ne_inv_pwr[0] = saha_one;
 		for (int i = 1; i < NSPECIES; i++) {
@@ -437,7 +470,7 @@ saha_real fast_saha(const std::vector<saha_real>& n,
 			for (int i = 1; i <= j; i++) {
 				nsum += ni[j][i];
 			}
-			const saha_real factor = n[j] / nsum;
+			const real factor = n[j] / nsum;
 			for (int i = 0; i <= j; i++) {
 				ni[j][i] *= factor;
 			}
@@ -448,9 +481,10 @@ saha_real fast_saha(const std::vector<saha_real>& n,
 				ne_next += i * ni[j][i];
 			}
 		}
-		const saha_real w = saha_real(1) / saha_real(10);
+		printf( "%e %e\n", ne, ne_last);
+		const real w = real(1) / real(10);
 		ne = ne_next * (saha_one - w) + w * ne;
-	} while (std::abs(ne - ne_last) / ne_max > 1.0e-12);
+	} while (std::abs(ne - ne_last) / ne_max > 1.0e-10);
 	return ne / ne_max;
 }
 
@@ -460,42 +494,39 @@ int main() {
 	feenableexcept(FE_OVERFLOW);
 	feenableexcept(FE_DIVBYZERO);
 
-	std::vector<saha_real> fracs(NSPECIES, 0.0);
-
+	std::vector<real> fracs(NSPECIES, 0.0);
+	const real n = 1;
+	const real T = 3.35e+3;
 	fracs[0] = 1.0;
-	fast_saha2(fracs, 3.200000e-03 * amu * 1.0, 2.560000e+03);
+	fast_saha2(fracs, n * amu * 1.0, T);
 
 	fracs[0] = 0.0;
 	fracs[1] = 1.0;
 
-	std::vector < std::vector < saha_real >> Ni;
-	std::vector < saha_real > N(NSPECIES);
+	std::vector<std::vector<real>> Ni;
+	std::vector<real> N(NSPECIES);
 	for (int i = 0; i < NSPECIES; i++) {
-		N[i] = 3.200000e-03 * fracs[i];
+		N[i] = n * fracs[i];
 	}
-	saha_real frac = fast_saha(N, Ni, saha_real(2.560000e+03));
-	fprintf(stdout, "%e %e %e\n", 3.200000e-03, 2.560000e+03, double(frac));
+	real frac = fast_saha(N, Ni, real(T));
+	fprintf(stdout, "%e %e %e\n",n, T, double(frac));
 
 	return 0;
 
-	static constexpr real
-	n_min = 1.0e-4;
-	static constexpr real
-	n_max = 1.0e+35;
-	static constexpr real
-	T_min = 1.0e+1;
-	static constexpr real
-	T_max = 1.0e+12;
+	static constexpr real n_min = 1.0e-4;
+	static constexpr real n_max = 1.0e+35;
+	static constexpr real T_min = 1.0e+1;
+	static constexpr real T_max = 1.0e+12;
 	int count = 0;
 	for (real n = n_min; n < n_max; n *= 2) {
 		for (real T = T_min; T < T_max; T *= 2) {
-			std::vector < saha_real > N(NSPECIES);
-			std::vector < std::vector < saha_real >> Ni;
+			std::vector<real> N(NSPECIES);
+			std::vector<std::vector<real>> Ni;
 			count++;
 			for (int i = 0; i < NSPECIES; i++) {
 				N[i] = n * fracs[i];
 			}
-			saha_real frac = fast_saha(N, Ni, saha_real(T));
+			real frac = fast_saha(N, Ni, real(T));
 			fprintf(stdout, "%e %e %e\n", n, T, double(frac));
 		}
 	}
