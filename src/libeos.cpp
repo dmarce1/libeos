@@ -382,7 +382,7 @@ thermodynamic_data_t fast_saha2(const std::vector<real>& fracs, real rho,
 	const real exp_neta = std::exp(-eta + eta_max);
 	for (int i = 0; i < NELE; i++) {
 		s1 = s2 = real(0);
-		s0 = real(1);
+		s0 = W[i][0];
 		real exp_n_neta = one;
 		for (int j = 1; j <= i + 1; j++) {
 			exp_n_neta *= exp_neta;
@@ -496,7 +496,7 @@ int main() {
 
 	std::vector<real> fracs(NSPECIES, 0.0);
 	const real n = 1;
-	const real T = 3.35e+3;
+	const real T = 3.27e+3;
 	fracs[0] = 1.0;
 	fast_saha2(fracs, n * amu * 1.0, T);
 
