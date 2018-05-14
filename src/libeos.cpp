@@ -285,6 +285,7 @@ struct thermodynamic_data_t {
 	real e;
 	real de_drho;
 	real de_dT;
+	real ne;
 };
 
 void electron_eta(real ne, real T, real& eta, real& deta_dne, real& deta_dT) {
@@ -292,6 +293,12 @@ void electron_eta(real ne, real T, real& eta, real& deta_dne, real& deta_dT) {
 	eta = -std::log(c0) - three / two * std::log(T) + std::log(ne);
 	deta_dne = one / ne;
 	deta_dT = -three / two / T;
+}
+
+void electron_pressure(real ne, real T, real& p, real& dp_dne, real& dp_dT) {
+	p = kb * ne * T;
+	dp_dT = kb * ne;
+	dp_dne = kb * T;
 }
 
 thermodynamic_data_t fast_saha2(const std::vector<real>& fracs, real rho,
@@ -378,23 +385,37 @@ thermodynamic_data_t fast_saha2(const std::vector<real>& fracs, real rho,
 
 	real eta, deta_dne, deta_dT;
 	electron_eta(ne, T, eta, deta_dne, deta_dT);
-	real dne_dn = ne / n;
+	real dne_dn = one;
+	real dne_dT = zero;
 	const real exp_neta = std::exp(-eta + eta_max);
+	real e0, e1;
 	for (int i = 0; i < NELE; i++) {
 		s1 = s2 = real(0);
+		e0 = e1 = zero;
 		s0 = W[i][0];
 		real exp_n_neta = one;
+		real ei = zero;
 		for (int j = 1; j <= i + 1; j++) {
 			exp_n_neta *= exp_neta;
 			const auto tmp = W[i][j] * exp_n_neta;
+			ei += elements[i + 1].e_i[j];
+			e0 += tmp * ei;
 			s0 += tmp;
 			s1 += real(j) * tmp;
+			e1 += real(j) * tmp * ei;
 			s2 += real(j * j) * tmp;
 		}
-		dne_dn -= (s2 / s0 - (s1 / s0) * (s1 / s0)) * N[i] * deta_dne;
+		dne_dn += (s2 / s0 - (s1 / s0) * (s1 / s0)) * N[i] * deta_dne;
+		real tmp1 = (s2 / s0 - (s1 / s0) * (s1 / s0)) * N[i] * deta_dT;
+		real tmp2 = (e1 / s0 - (s1 / s0) * (e0 / s0)) * N[i] / (kb * T * T);
+		printf("%e %e %e %e %e %e %e\n", tmp1, tmp2, e0, e1, s0, s1, s2);
+		dne_dT -= tmp1 - tmp2;
 	}
-	printf( "%e %e %e %e\n", n, ne, T, dne_dn);
-
+	dne_dn = ne / (n * dne_dn);
+	dne_dT *= (n / ne) * dne_dn;
+	printf("%e %e %e %e %e\n", n, ne, T, dne_dn, dne_dT);
+	results.ne = ne;
+	return results;
 }
 
 real fast_saha(const std::vector<real>& n, std::vector<std::vector<real>>& ni,
@@ -481,7 +502,7 @@ real fast_saha(const std::vector<real>& n, std::vector<std::vector<real>>& ni,
 				ne_next += i * ni[j][i];
 			}
 		}
-		printf( "%e %e\n", ne, ne_last);
+		printf("%e %e\n", ne, ne_last);
 		const real w = real(1) / real(10);
 		ne = ne_next * (saha_one - w) + w * ne;
 	} while (std::abs(ne - ne_last) / ne_max > 1.0e-10);
@@ -496,10 +517,13 @@ int main() {
 
 	std::vector<real> fracs(NSPECIES, 0.0);
 	const real n = 1;
-	const real T = 3.27e+3;
+	const real np = n * 0.99999;
+	const real T = 3.0e+3;
+	const real Tp1 = T * 1.0001;
 	fracs[0] = 1.0;
-	fast_saha2(fracs, n * amu * 1.0, T);
-
+	auto th1 = fast_saha2(fracs, n * amu * 1.0079, T);
+	auto th2 = fast_saha2(fracs, n * amu * 1.0079, Tp1);
+	printf("%e %e %e\n", th1.ne, th2.ne, (th1.ne - th2.ne) / (T - Tp1));
 	fracs[0] = 0.0;
 	fracs[1] = 1.0;
 
@@ -509,7 +533,7 @@ int main() {
 		N[i] = n * fracs[i];
 	}
 	real frac = fast_saha(N, Ni, real(T));
-	fprintf(stdout, "%e %e %e\n",n, T, double(frac));
+	fprintf(stdout, "%e %e %e\n", n, T, double(frac));
 
 	return 0;
 
