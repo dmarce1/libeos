@@ -179,10 +179,7 @@ std::vector<real> saha_ratios(int Z, real ne, real T) {
 
 class electron_table {
 private:
-	static constexpr real ne_min = 1.0e-4;
-	static constexpr real ne_max = 1.0e+35;
-	static constexpr real T_min = 1.0e+1;
-	static constexpr real T_max = 1.0e+12;
+	static constexpr real ne_min = 1.0e-4;static constexpr real ne_max = 1.0e+35;static constexpr real T_min = 1.0e+1;static constexpr real T_max = 1.0e+12;
 	std::shared_ptr<bicubic_table> mu_table;
 	std::shared_ptr<bicubic_table> p_table;
 public:
@@ -197,16 +194,18 @@ public:
 		 1.0e-2);
 
 		 */
-		p_table = std::make_shared<bicubic_table>([](real log_ne, real log_T) {
-			const real T = std::exp(log_T);
-			const real ne = std::exp(log_ne);
-			const real beta = kb * T / me / c / c;
-			const real eta= electron_chemical_potential(ne,beta);
-			real p, e;
-			electron_state(eta,beta,p,e);
-			return std::log(p);
-		}, std::log(ne_min), std::log(ne_max), std::log(T_min), std::log(T_max),
-				1.0e-3);
+		p_table =
+				std::make_shared < bicubic_table
+						> ([](real log_ne, real log_T) {
+							const real T = std::exp(log_T);
+							const real ne = std::exp(log_ne);
+							const real beta = kb * T / me / c / c;
+							const real eta= electron_chemical_potential(ne,beta);
+							real p, e;
+							electron_state(eta,beta,p,e);
+							return std::log(p);
+						}, std::log(ne_min), std::log(ne_max), std::log(T_min), std::log(
+								T_max), 1.0e-3);
 
 		FILE* fp = fopen("electron.dat", "wt");
 		for (real ne = ne_min; ne < ne_max; ne *= 2.0) {
@@ -227,15 +226,11 @@ class saha_table {
 private:
 	int Z;
 	std::shared_ptr<bicubic_table> Z_table;
-	std::shared_ptr<bicubic_table> e_table;
-	static constexpr real ne_min = 1.0e-4;
-	static constexpr real ne_max = 1.0e+35;
-	static constexpr real T_min = 1.0e+1;
-	static constexpr real T_max = 1.0e+12;
+	std::shared_ptr<bicubic_table> e_table;static constexpr real ne_min = 1.0e-4;static constexpr real ne_max = 1.0e+35;static constexpr real T_min = 1.0e+1;static constexpr real T_max = 1.0e+12;
 public:
 	saha_table(int z) {
 		Z = z;
-		std::function<real(real, real)> Z_func([this](real x, real y) {
+		std::function < real(real, real) > Z_func([this](real x, real y) {
 			const real ne = std::exp(x);
 			const real T = std::exp(y);
 			auto n = saha_ratios(Z,ne,T);
@@ -245,7 +240,7 @@ public:
 			}
 			return zbar;
 		});
-		std::function<real(real, real)> e_func([this](real x, real y) {
+		std::function < real(real, real) > e_func([this](real x, real y) {
 			const real ne = std::exp(x);
 			const real T = std::exp(y);
 			auto n = saha_ratios(Z,ne,T);
@@ -255,10 +250,14 @@ public:
 			}
 			return etot;
 		});
-		Z_table = std::make_shared<bicubic_table>(Z_func, std::log(ne_min),
-				std::log(ne_max), std::log(T_min), std::log(T_max), 1.0e-6);
-		e_table = std::make_shared<bicubic_table>(e_func, std::log(ne_min),
-				std::log(ne_max), std::log(T_min), std::log(T_max), 1.0e-6);
+		Z_table =
+				std::make_shared < bicubic_table
+						> (Z_func, std::log(ne_min), std::log(ne_max), std::log(
+								T_min), std::log(T_max), 1.0e-6);
+		e_table =
+				std::make_shared < bicubic_table
+						> (e_func, std::log(ne_min), std::log(ne_max), std::log(
+								T_min), std::log(T_max), 1.0e-6);
 		FILE* fp = fopen("eos.dat", "wt");
 		for (real ne = ne_min; ne < ne_max; ne *= 1.1) {
 			for (real T = T_min; T < T_max; T *= 1.1) {
@@ -273,24 +272,116 @@ public:
 		Z_table->save(fp);
 	}
 	void load(FILE* fp) {
-		Z_table = std::make_shared<bicubic_table>(fp);
+		Z_table = std::make_shared < bicubic_table > (fp);
 	}
 
 };
 
 using saha_real = double;
+
+struct thermodynamic_data_t {
+	real p;
+	real dp_drho;
+	real dp_dT;
+	real e;
+	real de_drho;
+	real de_dT;
+};
+
+thermodynamic_data_t fast_saha2(const std::vector<real>& fracs, real rho,
+		real T) {
+	static const real c0 = two * std::pow(two * M_PI * me * kb / (h * h), 1.5);
+	saha_real K = c0 * std::pow(T, 1.5);
+	saha_real logK = std::log(K);
+	const saha_real huge = 1e+100;
+	const saha_real large = 1e+20;
+	thermodynamic_data_t results;
+
+	std::vector < saha_real > N(NELE);
+	std::vector < std::vector<saha_real> > W(NELE);
+
+	// Compute coefficient matrix
+	for (int i = 0; i < NELE; i++) {
+		const auto& ele = elements[i + 1];
+		W[i].resize(i + 2);
+		const saha_real this_rho = fracs[i] * rho;
+		N[i] = this_rho / (amu * ele.A);
+
+		W[i][0] = saha_real(0);
+		real max_w = saha_real(0);
+		for (int j = 0; j < i + 1; j++) {
+			W[i][j + 1] = W[i][j] + ele.log_saha(j, T) + logK;
+			max_w = std::max(max_w, W[i][j + 1]);
+		}
+		for (int j = 0; j <= i + 1; j++) {
+			W[i][j] = std::exp(W[i][j] - max_w);
+		}
+
+	}
+
+	// Find maximum ne possible
+	saha_real ne_max = saha_real(0);
+	for (int i = 0; i < NELE; i++) {
+		ne_max += N[i] * saha_real(i + 1);
+	}
+
+	saha_real ne = ne_max / saha_real(2);
+
+	saha_real f, df_dne;
+	saha_real s0, s1, s2;
+
+	// N-R solve for ne
+	int iters = 0;
+	do {
+		f = ne;
+		df_dne = saha_real(1);
+		for (int i = 0; i < NELE; i++) {
+
+			s1 = s2 = saha_real(0);
+			s0 = saha_real(1);
+			auto ne_inv_pwr = saha_real(one);
+			for (int j = 1; j <= i + 1; j++) {
+				ne_inv_pwr /= ne;
+				const auto tmp = W[i][j] * ne_inv_pwr;
+				s0 += tmp;
+				s1 += saha_real(j) * tmp;
+				s2 += saha_real(j * j) * tmp;
+			}
+
+			f -= N[i] * s1 / s0;
+			df_dne += (s2 / s0 - (s1 / s0) * (s1 / s0)) * (N[i] / ne);
+		}
+		printf("%14e %14e %14e %14e\n", real(ne), real(f), real(df_dne),
+				real(ne / ne_max));
+		ne = std::min(
+				std::max(ne / saha_real(10), ne - f / df_dne),
+				(ne_max*0.1 + 0.9*ne));
+		iters++;
+		if (iters > 40) {
+			abort();
+		}
+	} while (std::abs(f) > 1.0e-16);
+
+}
+
 saha_real fast_saha(const std::vector<saha_real>& n,
 		std::vector<std::vector<saha_real>>& ni, saha_real T) {
 	static const real c0 = two * std::pow(two * M_PI * me * kb / (h * h), 1.5);
-	constexpr saha_real saha_zero = saha_real(0);
-	constexpr saha_real saha_one = saha_real(1);
+	constexpr
+	saha_real saha_zero = saha_real(0);
+	constexpr
+	saha_real saha_one = saha_real(1);
 
-	constexpr saha_real huge = 1.0e+200;
-	constexpr saha_real large = 1.0e+20;
-	constexpr saha_real small = 1.0e-20;
-	constexpr saha_real tiny = 1.0e-200;
+	constexpr
+	saha_real huge = 1.0e+200;
+	constexpr
+	saha_real large = 1.0e+20;
+	constexpr
+	saha_real small = 1.0e-20;
+	constexpr
+	saha_real tiny = 1.0e-200;
 
-	std::vector<std::vector<saha_real>> W;
+	std::vector < std::vector < saha_real >> W;
 	ni.resize(NSPECIES);
 	W.resize(NSPECIES);
 	for (int i = 0; i < NSPECIES; i++) {
@@ -371,26 +462,44 @@ int main() {
 
 	std::vector<saha_real> fracs(NSPECIES, 0.0);
 
-	fracs[2] = 1.0;
+	fracs[0] = 1.0;
+	fast_saha2(fracs, 3.200000e-03 * amu * 1.0, 2.560000e+03);
 
-	static constexpr real n_min = 1.0e-4;
-	static constexpr real n_max = 1.0e+35;
-	static constexpr real T_min = 1.0e+1;
-	static constexpr real T_max = 1.0e+12;
+	fracs[0] = 0.0;
+	fracs[1] = 1.0;
+
+	std::vector < std::vector < saha_real >> Ni;
+	std::vector < saha_real > N(NSPECIES);
+	for (int i = 0; i < NSPECIES; i++) {
+		N[i] = 3.200000e-03 * fracs[i];
+	}
+	saha_real frac = fast_saha(N, Ni, saha_real(2.560000e+03));
+	fprintf(stdout, "%e %e %e\n", 3.200000e-03, 2.560000e+03, double(frac));
+
+	return 0;
+
+	static constexpr real
+	n_min = 1.0e-4;
+	static constexpr real
+	n_max = 1.0e+35;
+	static constexpr real
+	T_min = 1.0e+1;
+	static constexpr real
+	T_max = 1.0e+12;
 	int count = 0;
-	for (real n = n_min; n < n_max; n *= 1.1) {
-		for (real T = T_min; T < T_max; T *= 1.1) {
-			std::vector<saha_real> N(NSPECIES);
-			std::vector<std::vector<saha_real>> Ni;
+	for (real n = n_min; n < n_max; n *= 2) {
+		for (real T = T_min; T < T_max; T *= 2) {
+			std::vector < saha_real > N(NSPECIES);
+			std::vector < std::vector < saha_real >> Ni;
 			count++;
 			for (int i = 0; i < NSPECIES; i++) {
 				N[i] = n * fracs[i];
 			}
 			saha_real frac = fast_saha(N, Ni, saha_real(T));
-			fprintf( stdout, "%e %e %e\n", n, T, double(frac));
+			fprintf(stdout, "%e %e %e\n", n, T, double(frac));
 		}
 	}
-	fprintf( stderr, "%i\n", count);
+	fprintf(stderr, "%i\n", count);
 	//	printf( "%e\n", electron_chemical_potential(1.000000e+35, kb * 1.000000e+01/me/c/c));
 //	electron_table();
 	return 0;
