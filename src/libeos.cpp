@@ -197,18 +197,16 @@ public:
 		 1.0e-2);
 
 		 */
-		p_table =
-				std::make_shared < bicubic_table
-						> ([](real log_ne, real log_T) {
-							const real T = std::exp(log_T);
-							const real ne = std::exp(log_ne);
-							const real beta = kb * T / me / c / c;
-							const real eta= electron_chemical_potential(ne,beta);
-							real p, e;
-							electron_state(eta,beta,p,e);
-							return std::log(p);
-						}, std::log(ne_min), std::log(ne_max), std::log(T_min), std::log(
-								T_max), 1.0e-3);
+		p_table = std::make_shared<bicubic_table>([](real log_ne, real log_T) {
+			const real T = std::exp(log_T);
+			const real ne = std::exp(log_ne);
+			const real beta = kb * T / me / c / c;
+			const real eta= electron_chemical_potential(ne,beta);
+			real p, e;
+			electron_state(eta,beta,p,e);
+			return std::log(p);
+		}, std::log(ne_min), std::log(ne_max), std::log(T_min), std::log(T_max),
+				1.0e-3);
 
 		FILE* fp = fopen("electron.dat", "wt");
 		for (real ne = ne_min; ne < ne_max; ne *= 2.0) {
@@ -257,14 +255,10 @@ public:
 			}
 			return etot;
 		});
-		Z_table =
-				std::make_shared < bicubic_table
-						> (Z_func, std::log(ne_min), std::log(ne_max), std::log(
-								T_min), std::log(T_max), 1.0e-6);
-		e_table =
-				std::make_shared < bicubic_table
-						> (e_func, std::log(ne_min), std::log(ne_max), std::log(
-								T_min), std::log(T_max), 1.0e-6);
+		Z_table = std::make_shared<bicubic_table>(Z_func, std::log(ne_min),
+				std::log(ne_max), std::log(T_min), std::log(T_max), 1.0e-6);
+		e_table = std::make_shared<bicubic_table>(e_func, std::log(ne_min),
+				std::log(ne_max), std::log(T_min), std::log(T_max), 1.0e-6);
 		FILE* fp = fopen("eos.dat", "wt");
 		for (real ne = ne_min; ne < ne_max; ne *= 1.1) {
 			for (real T = T_min; T < T_max; T *= 1.1) {
@@ -279,7 +273,7 @@ public:
 		Z_table->save(fp);
 	}
 	void load(FILE* fp) {
-		Z_table = std::make_shared < bicubic_table > (fp);
+		Z_table = std::make_shared<bicubic_table>(fp);
 	}
 
 };
@@ -390,54 +384,64 @@ thermodynamic_data_t fast_saha2(const std::vector<real>& fracs, real rho,
 	real dne_dn = one;
 	real dne_dT = zero;
 	const real exp_neta = std::exp(-eta + eta_max);
-	real e0, e1, e_i, e2, e3;
+	real e0, e1, e_i, e2;
 	e_i = zero;
 	real de_dne, de_dT;
 	de_dne = zero;
 	de_dT = zero;
 	for (int i = 0; i < NELE; i++) {
 		s1 = s2 = real(0);
-		e0 = e1 = e2 = e3 = zero;
+		e0 = e1 = e2 = zero;
 		s0 = W[i][0];
 		real exp_n_neta = one;
-		real ei = zero;
-		real this_ei = zero;
+		real ei_sum = zero;
 		for (int j = 1; j <= i + 1; j++) {
 			exp_n_neta *= exp_neta;
 			const auto tmp = W[i][j] * exp_n_neta;
-			ei += elements[i + 1].e_i[j];
-			e0 += tmp * ei;
-			e1 += real(j) * tmp * ei;
-			e2 += tmp * ei * elements[i + 1].e_i[j];
-			this_ei += elements[i + 1].e_i[j] * tmp;
+			ei_sum += elements[i + 1].e_i[j];
+
+			e1 += real(j) * tmp * ei_sum;
 			s0 += tmp;
+
+			e0 += tmp * ei_sum;
 			s1 += real(j) * tmp;
+
+			e2 += tmp * ei_sum * ei_sum;
 			s2 += real(j * j) * tmp;
 		}
-		e_i += this_ei * fracs[i];
-		de_dne -= deta_dne * fracs[i] * (e1 / s0 - (e0 / s0) * (s1 / s0));
-		de_dT += deta_dT * fracs[i] * (e1 / s0 - (e0 / s0) * (s1 / s0));
-		de_dT += (e2 - this_ei * e1) / (s0 * kb * T * T) * fracs[i];
-		dne_dn += (s2 / s0 - (s1 / s0) * (s1 / s0)) * N[i] * deta_dne;
-		real tmp1 = (s2 / s0 - (s1 / s0) * (s1 / s0)) * N[i] * deta_dT;
-		real tmp2 = (e1 / s0 - (s1 / s0) * (e0 / s0)) * N[i] / (kb * T * T);
+		e1 /= s0;
+		e0 /= s0;
+		s1 /= s0;
+		s2 /= s0;
+		e2 /= s0;
+		e_i += e0 * fracs[i];
+		de_dne -= deta_dne * fracs[i] * (e1 - e0 * s1);
+		de_dT -= deta_dT * fracs[i] * (e1 - e0 * s1);
+		de_dT += fracs[i] * (e2 - e0 * e0) / (kb * T * T);
+		dne_dn += (s2 - s1 * s1) * N[i] * deta_dne;
+		real tmp1 = (s2 - s1 * s1) * N[i] * deta_dT;
+		real tmp2 = (e1 - s1 * e0) * N[i] / (kb * T * T);
 		printf("%e %e %e %e %e %e %e\n", tmp1, tmp2, e0, e1, s0, s1, s2);
 		dne_dT -= tmp1 - tmp2;
 	}
-	e_i /= abar * amu;
+	de_dT *= n / rho;
 	dne_dn = ne / (n * dne_dn);
 	dne_dT *= (n / ne) * dne_dn;
+	de_dT *= (n / ne) * dne_dn;
+
+	printf("%e\n", (n / ne) * dne_dn);
 	printf("%e %e %e %e %e %e\n", n, ne, T, dne_dn, dne_dT, e_i);
 	results.ne = ne;
 
 	results.p = kb * (n + ne) * T;
-	results.e = three / two * results.p / rho + e_i;
+	results.e = (three / two * results.p / rho) + e_i / (abar * amu);
 	results.dp_dT = kb * (n + ne + dne_dT * T);
-	results.de_dT = three / two * results.dp_dT / rho + de_dT * (n / rho);
+	results.de_dT = three / two * results.dp_dT / rho + de_dT;
 	const real dp_dn = kb * T + kb * dne_dn * T;
 	results.dp_drho = dp_dn / (amu * abar);
-	results.de_drho = three / two * dp_dn / (amu * abar)
-			+ (de_dne * dne_dn) * (n / rho);
+	results.de_drho = de_dne * dne_dn / (amu * amu * abar * abar);
+	results.de_drho += (three / two) * kb * T * (dne_dn - ne / n)
+			/ (rho * abar * amu);
 	return results;
 }
 
@@ -539,14 +543,22 @@ int main() {
 	feenableexcept(FE_DIVBYZERO);
 
 	std::vector<real> fracs(NSPECIES, 0.0);
-	const real n = 1;
-	const real np = n * 0.99999;
-	const real T = 3.0e+3;
-	const real Tp1 = T * 1.0001;
+	const real n = 1.0/amu;
+	const real np = n * 1.00001;
+	const real T = 0.65e+2;
+	const real Tp1 = T * 1.00001;
 	fracs[0] = 1.0;
 	auto th1 = fast_saha2(fracs, n * amu * 1.0079, T);
-	auto th2 = fast_saha2(fracs, n * amu * 1.0079, Tp1);
-	printf("%e %e %e\n", th1.ne, th2.ne, (th1.ne - th2.ne) / (T - Tp1));
+	auto th2 = fast_saha2(fracs, np * amu * 1.0079, T);
+	auto th3 = fast_saha2(fracs, n * amu * 1.0079, Tp1);
+	printf("%e %e %e\n", th1.p, th1.dp_drho,
+			(th1.p - th2.p) / (n - np) / (amu * 1.0079));
+	printf("%e %e %e\n", th1.p, th1.dp_dT, (th1.p - th3.p) / (T - Tp1));
+
+	printf("%e %e %e %e\n", th1.e, th2.e, (th1.de_drho +  th2.de_drho)/2.0,
+			(th1.e - th2.e) / (n - np) / (amu * 1.0079));
+	printf("%e %e %e\n", th1.e, th1.de_dT, (th1.e - th3.e) / (T - Tp1));
+	return 0;
 	fracs[0] = 0.0;
 	fracs[1] = 1.0;
 
