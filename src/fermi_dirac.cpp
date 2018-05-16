@@ -9,7 +9,6 @@
 
 constexpr int N = 100;
 
-
 constexpr real quadrature_weights[N] = { 7.3463449050567173E-4,
 		0.0017093926535181052395, 0.0026839253715534824194,
 		0.0036559612013263751823, 0.0046244500634221193511,
@@ -132,6 +131,13 @@ std::function<real(real)> fd(real k, real eta, real beta) {
 	};
 }
 
+std::function<real(real)> fd2(real k, real eta, real beta) {
+	return [k,eta,beta]( real x ) {
+//		printf( "%e %e %e\n", x, eta, x - eta);
+		return std::pow(x,2*k+1) * std::sqrt(1.0 + beta * x*x / 2.0) / (std::exp(x*x-eta)+1.0);
+	};
+}
+
 std::function<real(real)> fd_bigeta(real k, real eta, real beta) {
 	return [k,eta,beta]( real x ) {
 		if( x <= eta ) {
@@ -156,7 +162,7 @@ real dfd_deta_bigeta(real k, real eta, real beta) {
 real integrate(const std::function<real(real)>& f, real a, real b, int n) {
 	const real dx = (b - a) / n;
 	const int nthreads = omp_get_max_threads();
-	std::vector<real> sums(nthreads,0.0);
+	std::vector<real> sums(nthreads, 0.0);
 	real x = a;
 #pragma omp parallel for
 	for (int i = 0; i < n; i++) {
@@ -164,7 +170,7 @@ real integrate(const std::function<real(real)>& f, real a, real b, int n) {
 		const real this_sum = integrate(f, x, x + dx);
 		sums[omp_get_thread_num()] += this_sum;
 	}
-	return std::accumulate(sums.begin(),sums.end(),0.0);
+	return std::accumulate(sums.begin(), sums.end(), 0.0);
 }
 
 constexpr real width = 30.0;
@@ -174,8 +180,8 @@ real fd_ne(real eta, real beta) {
 	real w = std::max(width, 1.0e-10 * eta);
 	real a = 0.0;
 	real b = std::max(w, eta + w);
-	const real c0 = real(8) * M_PI * std::sqrt(2)
-			* std::pow(me * c / h, three) * std::pow(beta,1.5);
+	const real c0 = real(8) * M_PI * std::sqrt(2) * std::pow(me * c / h, three)
+			* std::pow(beta, 1.5);
 	const auto func = [eta,beta](real x ) {
 		const real a = std::sqrt(x + 0.5 * x * x * beta);
 		const real b = (1.0 + x * beta);
@@ -184,7 +190,6 @@ real fd_ne(real eta, real beta) {
 		return a * b * c / d;
 	};
 	return integrate(func, a, b, M);
-
 
 }
 
@@ -209,22 +214,70 @@ real dFermiDirac_deta(real k, real eta, real beta) {
 		return integrate(dfd_deta(k, eta, beta), a, b, M);
 	}
 }
-/*
 
- int main() {
- real k, beta;
- k = 0.5;
- beta = 1.0e-6;
- //	dfd_integrate(0.5, 1.0e+12, beta);
- real eta = 1.0;
- real f = 1.0, df = 1.0;
- real last_f = 1.0, last_df = 1.0;
- for (M = 1; M < 1024 * 1024 * 1024; M *= 2) {
- last_f = f;
- last_df = df;
- f = FermiDirac(k, eta, beta);
- df = dFermiDirac_deta(k, eta, beta);
- printf("%i %e %e %e %e\n", M, f, df, f - last_f, df - last_df);
- }
- }
- */
+void aparcio_cuts(real eta, real& x1, real& x2, real& x3) {
+	constexpr real D = 3.3609;
+	constexpr real sigma = 9.1186e-2;
+	constexpr real a1 = 6.7774;
+	constexpr real b1 = 1.1418;
+	constexpr real c1 = 2.9826;
+	constexpr real a2 = 3.7601;
+	constexpr real b2 = 9.3719e-2;
+	constexpr real c2 = 2.1063e-2;
+	constexpr real d2 = 3.1084e+1;
+	constexpr real e2 = 1.0056;
+	constexpr real a3 = 7.5669;
+	constexpr real b3 = 1.1695;
+	constexpr real c3 = 7.5416e-1;
+	constexpr real d3 = 6.6558;
+	constexpr real e3 = -1.2819e-1;
+	real xsi;
+	if (eta < 7.739391e+03) {
+		xsi = std::log(real(1) + std::exp(sigma * (eta - D))) / sigma;
+	} else {
+		xsi = eta;
+	}
+	const real xsi2 = xsi * xsi;
+	real Xa = a1 + b1 * xsi + c1 * xsi2;
+	real Xb = a2 + b2 * xsi + c2 * d2 * xsi2;
+	real Xc = a3 + b3 * xsi + c3 * d3 * xsi2;
+	Xa /= real(1) + c1 * xsi;
+	Xb /= real(1) + e2 * xsi + c2 * xsi2;
+	Xc /= real(1) + e3 * xsi + c3 * xsi2;
+	x1 = Xa - Xb;
+	x2 = Xa;
+	x3 = Xa + Xc;
+}
+
+real FermiDirac2(real k, real eta, real beta) {
+	real x0, x1, x2, x3, x4;
+	x0 = zero;
+	aparcio_cuts(eta, x1, x2, x3);
+	x4 = x3 + width;
+	constexpr int N = 100;
+	const real sum1 = integrate(fd2(k, eta, beta), std::sqrt(x0), std::sqrt(x1),
+			M);
+	const real sum2 = integrate(fd2(k, eta, beta), std::sqrt(x1), std::sqrt(x2),
+			M);
+	const real sum3 = integrate(fd(k, eta, beta), x2, x3, M);
+	const real sum4 = integrate(fd(k, eta, beta), x3, x4, M);
+	return two * (sum1 + sum2) + sum3 + sum4;
+}
+
+int main() {
+	real x1, x2, x3;
+	const real k = 0.5;
+	real eta = 1.0e+3;
+	real beta = 1.0;
+	real last_f1, last_f2;
+	real f1 = 1, f2 = 2;
+	for( M = 1; M < 1000909000; M*=2) {
+		last_f1 = f1;
+		last_f2 = f2;
+		f1 = FermiDirac(k, eta, beta);
+		f2 = FermiDirac2(k, eta, beta);
+		real e1 = std::abs(last_f1 - f1)/f1;
+		real e2 = std::abs(last_f2 - f2)/f2;
+		printf( "%i %e %e %e %e\n", M, f1, e1, f2, e2);
+	}
+}
