@@ -174,8 +174,8 @@ thermodynamic_data_t fast_saha2(const std::vector<real>& fracs, real rho,
 		ne_max += N[i] * real(i + 1);
 	}
 
-	real eta_max, dummy;
-	electron_eta(ne_max, T, eta_max, dummy, dummy);
+	real eta_0, dummy;
+	electron_eta(ne_max * 1.0e-7, T, eta_0, dummy, dummy);
 	// Compute coefficient matrix
 	for (int i = 0; i < NELE; i++) {
 		const auto& ele = elements[i + 1];
@@ -183,7 +183,7 @@ thermodynamic_data_t fast_saha2(const std::vector<real>& fracs, real rho,
 		W[i][0] = real(0);
 		real max_w = real(0);
 		for (int j = 0; j < i + 1; j++) {
-			W[i][j + 1] = W[i][j] + ele.log_saha(j, T) - eta_max;
+			W[i][j + 1] = W[i][j] + ele.log_saha(j, T) - eta_0;
 			max_w = std::max(max_w, W[i][j + 1]);
 		}
 		for (int j = 0; j <= i + 1; j++) {
@@ -205,7 +205,7 @@ thermodynamic_data_t fast_saha2(const std::vector<real>& fracs, real rho,
 		df_dne = real(1);
 		real eta, deta_dne, deta_dT;
 		electron_eta(ne, T, eta, deta_dne, deta_dT);
-		const real exp_neta = std::exp(-eta + eta_max);
+		const real exp_neta = std::exp(-eta + eta_0);
 		for (int i = 0; i < NELE; i++) {
 			s1 = s2 = real(0);
 			s0 = W[i][0];
@@ -230,13 +230,13 @@ thermodynamic_data_t fast_saha2(const std::vector<real>& fracs, real rho,
 		if (iters > 400) {
 			abort();
 		}
-	} while (std::abs(ne - ne_last) / ne_max > 1.0e-10);
+	} while (std::abs(ne - ne_last) / ne_max > 1.0e-14);
 
 	real eta, deta_dne, deta_dT;
 	electron_eta(ne, T, eta, deta_dne, deta_dT);
 	real dne_dn = one;
 	real dne_dT = zero;
-	const real exp_neta = std::exp(-eta + eta_max);
+	const real exp_neta = std::exp(-eta + eta_0);
 	real e0, e1, e_i, e2;
 	e_i = zero;
 	real de_dne, de_dT;
@@ -396,9 +396,9 @@ int main() {
 	feenableexcept(FE_DIVBYZERO);
 
 	std::vector<real> fracs(NSPECIES, 0.0);
-	const real n = 1.0/amu;
+	const real n = 1.0;
 	const real np = n * 1.00001;
-	const real T = 0.65e+2;
+	const real T = 1.0;
 	const real Tp1 = T * 1.00001;
 	fracs[0] = 1.0;
 	auto th1 = fast_saha2(fracs, n * amu * 1.0079, T);
@@ -408,8 +408,8 @@ int main() {
 			(th1.p - th2.p) / (n - np) / (amu * 1.0079));
 	printf("%e %e %e\n", th1.p, th1.dp_dT, (th1.p - th3.p) / (T - Tp1));
 
-	printf("%e %e %e %e\n", th1.e, th2.e, (th1.de_drho +  th2.de_drho)/2.0,
-			(th1.e - th2.e) / (n - np) / (amu * 1.0079));
+	printf("%e %e %e %e\n", th1.e, th2.e, (th1.de_drho +  th2.de_drho)/2.0* n * (amu * 1.0079),
+			(th1.e - th2.e) / (n - np) / (amu * 1.0079) * n * (amu * 1.0079));
 	printf("%e %e %e\n", th1.e, th1.de_dT, (th1.e - th3.e) / (T - Tp1));
 	return 0;
 	fracs[0] = 0.0;
