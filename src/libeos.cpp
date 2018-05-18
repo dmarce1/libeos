@@ -390,7 +390,7 @@ real fast_saha(const std::vector<real>& n, std::vector<std::vector<real>>& ni,
 }
 
 #include <fenv.h>
-/*
+
 int main() {
 	feenableexcept(FE_OVERFLOW);
 	feenableexcept(FE_DIVBYZERO);
@@ -447,4 +447,3 @@ int main() {
 //	electron_table();
 	return 0;
 }
-*/
