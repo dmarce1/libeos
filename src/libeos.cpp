@@ -7,7 +7,7 @@
 #include <cfenv>
 #include <limits>
 
-#include "bicubic.hpp"
+#include "biquintic.hpp"
 #include "elements.hpp"
 #include "physcon.hpp"
 #include "real.hpp"
@@ -55,7 +55,6 @@ real dN_pos_deta(real eta, real beta) {
 	}
 }
 
-
 real electron_chemical_potential(real ne, real beta) {
 	const real T = beta * me * c * c / kb;
 	const auto F = [ne,beta]( real eta ) {
@@ -102,33 +101,40 @@ real electron_chemical_potential(real ne, real beta) {
 		}
 		real eta0 = eta + w * deta;
 		eta = std::max(eta0, (eta + min_eta) / 2.0);
+		//	printf( "    %e %e %e\n", ne, T, eta);
 	} while (err > 1.0e-12 && std::abs(deta) > 1.0e-14);
 //	printf( "%e %e %e\n", ne, T, eta);
 	return eta;
 }
 
-real electron_free_energy( real ne, real T ) {
-	const real beta =  kb * T / me / c / c;
-	const real eta = electron_chemical_potential(ne,beta);
-
-
-		static const real c0 = real(64) * std::atan(1) * std::sqrt(2)
-				* std::pow(me * c / h, three) / real(3) * me * c * c;
-		const real eta2 = -eta - two / beta;
-		real f3, f4;
-		const real f1 = FermiDirac(three / two, eta, beta);
-		const real f2 = FermiDirac(five / two, eta, beta);
-		if (eta2 > -200.0) {
-			f3 = FermiDirac(three / two, eta2, beta);
-			f4 = FermiDirac(five / two, eta2, beta);
-		} else {
-			f3 = f4 = 0.0;
-		}
-		const real pele = c0 * std::pow(beta, five / two) * (f1 + beta / two * f2);
-		const real ppos = c0 * std::pow(beta, five / two) * (f3 + beta / two * f4);
-		const real pressure = pele + ppos;
-		const real free_energy = eta * kb * ne * T - pressure;
-
+real electron_free_energy(real ne, real T) {
+	const real beta = kb * T / me / c / c;
+	const real etae = electron_chemical_potential(ne, beta);
+	static const real c0 = real(64) * std::atan(1) * std::sqrt(2)
+			* std::pow(me * c / h, three) / real(3) * me * c * c;
+	static const real c1 = real(32) * std::atan(1) * std::sqrt(2)
+			* std::pow(me * c / h, three);
+	const real etap = -etae - two / beta;
+	real f12p, f32p, f52p;
+	const real f12e = FermiDirac(one / two, etae, beta);
+	const real f32e = FermiDirac(three / two, etae, beta);
+	const real f52e = FermiDirac(five / two, etae, beta);
+	if (etap > -200.0) {
+		f12p = FermiDirac(one / two, etap, beta);
+		f32p = FermiDirac(three / two, etap, beta);
+		f52p = FermiDirac(five / two, etap, beta);
+	} else {
+		f12p = f32p = f52p = 0.0;
+	}
+	const real pele = c0 * std::pow(beta, five / two)
+			* (f32e + beta / two * f52e);
+	const real ppos = c0 * std::pow(beta, five / two)
+			* (f32p + beta / two * f52p);
+	const real nele = c1 * std::pow(beta, three / two) * (f12e + beta * f32e);
+	const real npos = c1 * std::pow(beta, three / two) * (f12p + beta * f32p);
+	const real pressure = pele + ppos;
+	const real free_energy = kb * T * (etae * nele + etap * npos) - pressure;
+	return free_energy;
 }
 
 struct thermodynamic_data_t {
@@ -391,9 +397,47 @@ real fast_saha(const std::vector<real>& n, std::vector<std::vector<real>>& ni,
 
 #include <fenv.h>
 
+double y_out(real y) {
+	return y;
+	return std::asinh(y);
+}
+
+double y_in(real y) {
+	return y;
+	return std::sinh(y);
+}
+
 int main() {
 	feenableexcept(FE_OVERFLOW);
 	feenableexcept(FE_DIVBYZERO);
+
+	static constexpr real n_min = 1.0e-4;
+	static constexpr real n_max = 1.0e+35;
+	static constexpr real T_min = 1.0e+1;
+	static constexpr real T_max = 1.0e+12;
+
+	const auto func = [](real log_n, real log_T ) {
+		const real n = std::exp(log_n);
+		const real T = std::exp(log_T);
+		//	printf( "%e %e %e\n", n, T, fe);
+			return y_out(electron_free_energy(n,T));
+		};
+	biquintic_table electron_fe(func, std::log(n_min), std::log(n_max),
+			std::log(T_min), std::log(T_max), 1.0e-6);
+	FILE* fp = fopen( "electron_eos.dat", "wb" );
+	electron_fe.save(fp);
+	fclose(fp);
+	fp = fopen("eos.dat", "wt");
+	for (real n = n_min; n < n_max; n *= 2) {
+		for (real T = T_min; T < T_max; T *= 2) {
+			fprintf(fp, "%e %e %e %e\n", n, T,
+					electron_fe(std::log(n), std::log(T)),
+					y_out(electron_free_energy(n, T)));
+		}
+	}
+	fclose(fp);
+
+	return 0;
 
 	std::vector<real> fracs(NSPECIES, 0.0);
 	const real n = 1.0;
@@ -408,7 +452,8 @@ int main() {
 			(th1.p - th2.p) / (n - np) / (amu * 1.0079));
 	printf("%e %e %e\n", th1.p, th1.dp_dT, (th1.p - th3.p) / (T - Tp1));
 
-	printf("%e %e %e %e\n", th1.e, th2.e, (th1.de_drho +  th2.de_drho)/2.0* n * (amu * 1.0079),
+	printf("%e %e %e %e\n", th1.e, th2.e,
+			(th1.de_drho + th2.de_drho) / 2.0 * n * (amu * 1.0079),
 			(th1.e - th2.e) / (n - np) / (amu * 1.0079) * n * (amu * 1.0079));
 	printf("%e %e %e\n", th1.e, th1.de_dT, (th1.e - th3.e) / (T - Tp1));
 	return 0;
@@ -425,10 +470,6 @@ int main() {
 
 	return 0;
 
-	static constexpr real n_min = 1.0e-4;
-	static constexpr real n_max = 1.0e+35;
-	static constexpr real T_min = 1.0e+1;
-	static constexpr real T_max = 1.0e+12;
 	int count = 0;
 	for (real n = n_min; n < n_max; n *= 2) {
 		for (real T = T_min; T < T_max; T *= 2) {
@@ -439,11 +480,12 @@ int main() {
 				N[i] = n * fracs[i];
 			}
 			real frac = fast_saha(N, Ni, real(T));
-			fprintf(stdout, "%e %e %e\n", n, T, double(frac));
+//			fprintf(stdout, "%e %e %e\n", n, T, double(frac));
 		}
 	}
 	fprintf(stderr, "%i\n", count);
-	//	printf( "%e\n", electron_chemical_potential(1.000000e+35, kb * 1.000000e+01/me/c/c));
+//	printf( "%e\n", electron_chemical_potential(1.000000e+35, kb * 1.000000e+01/me/c/c));
 //	electron_table();
 	return 0;
 }
+

@@ -459,13 +459,13 @@ biquintic_table::biquintic_table(const std::function<real(real, real)>& func,
 	do {
 		biquintic_table test_x(func, xmin, xmax, ymin, ymax, 2 * nx, ny);
 		biquintic_table test_y(func, xmin, xmax, ymin, ymax, nx, 2 * ny);
-		if (test_x.Linf < test_y.Linf) {
+		if (test_x.L2 < test_y.L2) {
 			nx *= 2;
-			err = test_x.Linf;
+			err = test_x.L2;
 			*this = std::move(test_x);
 		} else {
 			ny *= 2;
-			err = test_y.Linf;
+			err = test_y.L2;
 			*this = std::move(test_y);
 		}
 		printf(" %e %e %e %i %i\n", L1, L2, Linf, nx, ny);
@@ -497,8 +497,8 @@ biquintic_table::biquintic_table(const std::function<real(real, real)>& func,
 			data[ix + iy * (NX + 1)] = value;
 		}
 	}
-	for (int iy = 1; iy < NY - 1; iy++) {
-		for (int ix = 1; ix < NX - 1; ix++) {
+	for (int iy = 2; iy < NY - 2; iy++) {
+		for (int ix = 2; ix < NX - 2; ix++) {
 			int i2 = ix + iy * (NX);
 			for (int j = 0; j < 36; j++) {
 				int k = 0;
@@ -508,8 +508,8 @@ biquintic_table::biquintic_table(const std::function<real(real, real)>& func,
 
 						C[i2][j] +=
 								W[j][k]
-										* data[(ix - 1 + kx)
-												+ (iy - 1 + ky) * (NX + 1)];
+										* data[(ix - 2 + kx)
+												+ (iy - 2 + ky) * (NX + 1)];
 						k++;
 					}
 				}
@@ -526,17 +526,18 @@ biquintic_table::biquintic_table(const std::function<real(real, real)>& func,
 		real y = ymin + rand1() * (ymax - ymin);
 		real exact = func(x, y);
 		real interp = (*this)(x, y);
-		norm += std::abs(exact);
-		real dif = std::abs(exact - interp);
+		real dif;
+		dif = 0.5 * std::abs(exact - interp)
+				/ (std::abs(exact) + std::abs(interp));
+		dif = std::min(dif, std::abs(exact - interp));
 		L1 += dif;
 		L2 += dif * dif;
 		Linf = std::max(Linf, dif);
 	}
-	L1 /= norm;
-	L2 /= norm * norm;
+	L1 /= NS;
+	L2 /= NS * NS;
 	L2 = std::sqrt(L2);
-	Linf /= norm;
-
+	printf( "%e %e %e\n", L1, L2, Linf);
 }
 
 bool biquintic_table::in_range(real x, real y) const {
@@ -547,8 +548,8 @@ bool biquintic_table::in_range(real x, real y) const {
 }
 
 real biquintic_table::operator()(real x, real y) const {
-	int xi = std::min(std::max(1, int((x - xmin) / dx)), NX - 2);
-	int yi = std::min(std::max(1, int((y - ymin) / dy)), NY - 2);
+	int xi = std::min(std::max(2, int((x - xmin) / dx)), NX - 3);
+	int yi = std::min(std::max(2, int((y - ymin) / dy)), NY - 3);
 	if (x < xmin || y < ymin || x >= xmax || y >= ymax) {
 		printf("Interpolation request out of range\n");
 		printf("%e %e\n", x, y);
