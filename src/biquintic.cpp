@@ -520,7 +520,6 @@ biquintic_table::biquintic_table(const std::function<real(real, real)>& func,
 	L1 = L2 = 0.0;
 	Linf = 0.0;
 	int NS = NX * NY;
-	real norm = 0.0;
 	for (int i = 0; i < NS; i++) {
 		real x = xmin + rand1() * (xmax - xmin);
 		real y = ymin + rand1() * (ymax - ymin);

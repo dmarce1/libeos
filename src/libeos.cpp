@@ -132,8 +132,7 @@ real electron_free_energy(real ne, real T) {
 			* (f32p + beta / two * f52p);
 	const real nele = c1 * std::pow(beta, three / two) * (f12e + beta * f32e);
 	const real npos = c1 * std::pow(beta, three / two) * (f12p + beta * f32p);
-	const real pressure = pele + ppos;
-	const real free_energy = kb * T * (etae * nele + etap * npos) - pressure;
+	const real free_energy = (kb * T * (etae * nele + etap * npos) - (pele + ppos)) / ne;
 	return free_energy;
 }
 
@@ -156,8 +155,6 @@ void electron_eta(real ne, real T, real& eta, real& deta_dne, real& deta_dT) {
 
 thermodynamic_data_t fast_saha2(const std::vector<real>& fracs, real rho,
 		real T) {
-	const real huge = 1e+100;
-	const real large = 1e+20;
 	thermodynamic_data_t results;
 
 	real n = zero;
@@ -304,108 +301,6 @@ thermodynamic_data_t fast_saha2(const std::vector<real>& fracs, real rho,
 	return results;
 }
 
-real fast_saha(const std::vector<real>& n, std::vector<std::vector<real>>& ni,
-		real T) {
-	static const real c0 = two * std::pow(two * M_PI * me * kb / (h * h), 1.5);
-	constexpr
-	real saha_zero = real(0);
-	constexpr
-	real saha_one = real(1);
-
-	constexpr
-	real huge = 1.0e+200;
-	constexpr
-	real large = 1.0e+20;
-	constexpr
-	real small = 1.0e-20;
-	constexpr
-	real tiny = 1.0e-200;
-
-	std::vector<std::vector<real>> W;
-	ni.resize(NSPECIES);
-	W.resize(NSPECIES);
-	for (int i = 0; i < NSPECIES; i++) {
-		ni[i].resize(i + 1);
-		W[i].resize(i + 1);
-	}
-	real& ne = ni[0][0];
-	real ne_max = saha_zero;
-	for (int i = 1; i < NSPECIES; i++) {
-		ne_max += n[i] * i;
-	}
-	ne = ne_max * half;
-	real ne_last, ne_next;
-	real K = c0 * std::pow(T, 1.5);
-	real v;
-	for (int j = 1; j < NSPECIES; j++) {
-		W[j][0] = v = saha_one;
-		for (int i = 0; i < j; i++) {
-			v *= elements[j].saha(i, T);
-			if (v < huge) {
-				NULL;
-			} else {
-				for (int k = 0; k < i; k++) {
-					W[j][k] = saha_zero;
-				}
-				v = saha_one;
-			}
-			W[j][i + 1] = v;
-		}
-	}
-	std::vector<real> ne_inv_pwr(NSPECIES);
-	do {
-		ne_last = ne;
-		real nsum = saha_zero;
-		real ne_inv = saha_one / ne;
-		const real kone = K * ne_inv;
-
-		ne_inv_pwr[0] = saha_one;
-		for (int i = 1; i < NSPECIES; i++) {
-			ne_inv_pwr[i] = kone * ne_inv_pwr[i - 1];
-			if (ne_inv_pwr[i] < huge) {
-				NULL;
-			} else {
-				ne_inv_pwr[i] = huge;
-			}
-		}
-		for (int j = 1; j < NSPECIES; j++) {
-#pragma ivdep
-			for (int i = 0; i <= j; i++) {
-				ni[j][i] = W[j][i] * ne_inv_pwr[i];
-			}
-			nsum = ni[j][0];
-			for (int i = 1; i <= j; i++) {
-				nsum += ni[j][i];
-			}
-			const real factor = n[j] / nsum;
-			for (int i = 0; i <= j; i++) {
-				ni[j][i] *= factor;
-			}
-		}
-		ne_next = saha_zero;
-		for (int j = 1; j < NSPECIES; j++) {
-			for (int i = 1; i <= j; i++) {
-				ne_next += i * ni[j][i];
-			}
-		}
-		printf("%e %e\n", ne, ne_last);
-		const real w = real(1) / real(10);
-		ne = ne_next * (saha_one - w) + w * ne;
-	} while (std::abs(ne - ne_last) / ne_max > 1.0e-10);
-	return ne / ne_max;
-}
-
-#include <fenv.h>
-
-double y_out(real y) {
-	return y;
-	return std::asinh(y);
-}
-
-double y_in(real y) {
-	return y;
-	return std::sinh(y);
-}
 
 int main() {
 	feenableexcept(FE_OVERFLOW);
@@ -419,11 +314,10 @@ int main() {
 	const auto func = [](real log_n, real log_T ) {
 		const real n = std::exp(log_n);
 		const real T = std::exp(log_T);
-		//	printf( "%e %e %e\n", n, T, fe);
-			return y_out(electron_free_energy(n,T));
+			return electron_free_energy(n,T);
 		};
 	biquintic_table electron_fe(func, std::log(n_min), std::log(n_max),
-			std::log(T_min), std::log(T_max), 1.0e-6);
+			std::log(T_min), std::log(T_max), 1.0e-3);
 	FILE* fp = fopen( "electron_eos.dat", "wb" );
 	electron_fe.save(fp);
 	fclose(fp);
@@ -432,60 +326,13 @@ int main() {
 		for (real T = T_min; T < T_max; T *= 2) {
 			fprintf(fp, "%e %e %e %e\n", n, T,
 					electron_fe(std::log(n), std::log(T)),
-					y_out(electron_free_energy(n, T)));
+					electron_free_energy(n, T));
 		}
 	}
 	fclose(fp);
 
 	return 0;
 
-	std::vector<real> fracs(NSPECIES, 0.0);
-	const real n = 1.0;
-	const real np = n * 1.00001;
-	const real T = 1.0;
-	const real Tp1 = T * 1.00001;
-	fracs[0] = 1.0;
-	auto th1 = fast_saha2(fracs, n * amu * 1.0079, T);
-	auto th2 = fast_saha2(fracs, np * amu * 1.0079, T);
-	auto th3 = fast_saha2(fracs, n * amu * 1.0079, Tp1);
-	printf("%e %e %e\n", th1.p, th1.dp_drho,
-			(th1.p - th2.p) / (n - np) / (amu * 1.0079));
-	printf("%e %e %e\n", th1.p, th1.dp_dT, (th1.p - th3.p) / (T - Tp1));
 
-	printf("%e %e %e %e\n", th1.e, th2.e,
-			(th1.de_drho + th2.de_drho) / 2.0 * n * (amu * 1.0079),
-			(th1.e - th2.e) / (n - np) / (amu * 1.0079) * n * (amu * 1.0079));
-	printf("%e %e %e\n", th1.e, th1.de_dT, (th1.e - th3.e) / (T - Tp1));
-	return 0;
-	fracs[0] = 0.0;
-	fracs[1] = 1.0;
-
-	std::vector<std::vector<real>> Ni;
-	std::vector<real> N(NSPECIES);
-	for (int i = 0; i < NSPECIES; i++) {
-		N[i] = n * fracs[i];
-	}
-	real frac = fast_saha(N, Ni, real(T));
-	fprintf(stdout, "%e %e %e\n", n, T, double(frac));
-
-	return 0;
-
-	int count = 0;
-	for (real n = n_min; n < n_max; n *= 2) {
-		for (real T = T_min; T < T_max; T *= 2) {
-			std::vector<real> N(NSPECIES);
-			std::vector<std::vector<real>> Ni;
-			count++;
-			for (int i = 0; i < NSPECIES; i++) {
-				N[i] = n * fracs[i];
-			}
-			real frac = fast_saha(N, Ni, real(T));
-//			fprintf(stdout, "%e %e %e\n", n, T, double(frac));
-		}
-	}
-	fprintf(stderr, "%i\n", count);
-//	printf( "%e\n", electron_chemical_potential(1.000000e+35, kb * 1.000000e+01/me/c/c));
-//	electron_table();
-	return 0;
 }
 

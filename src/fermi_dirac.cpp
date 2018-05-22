@@ -213,7 +213,6 @@ real integrate(const std::function<real(real)>& f, real a, real b, int n) {
 	const real dx = (b - a) / n;
 	const int nthreads = omp_get_max_threads();
 	std::vector<real> sums(nthreads, 0.0);
-	real x = a;
 #pragma omp parallel for
 	for (int i = 0; i < n; i++) {
 		const real x = a + i * dx;
@@ -224,47 +223,8 @@ real integrate(const std::function<real(real)>& f, real a, real b, int n) {
 }
 
 constexpr real width = 30.0;
-int M = 1;
+int M = 2;
 
-real fd_ne(real eta, real beta) {
-	real w = std::max(width, 1.0e-10 * eta);
-	real a = 0.0;
-	real b = std::max(w, eta + w);
-	const real c0 = real(8) * M_PI * std::sqrt(2) * std::pow(me * c / h, three)
-			* std::pow(beta, 1.5);
-	const auto func = [eta,beta](real x ) {
-		const real a = std::sqrt(x + 0.5 * x * x * beta);
-		const real b = (1.0 + x * beta);
-		const real c = std::sinh(eta+1.0/beta) * 0.5;
-		const real d = std::cosh(eta+1.0/beta) + std::cosh(x+1.0/beta);
-		return a * b * c / d;
-	};
-	return integrate(func, a, b, M);
-
-}
-/*
- real FermiDirac(real k, real eta, real beta) {
- real w = std::max(width, 1.0e-10 * eta);
- real a = 0.0;
- real b = std::max(w, eta + w);
- if (eta > 1.0e+10) {
- return integrate(fd_bigeta(k, eta, beta), a, b, M);
- } else {
- return integrate(fd(k, eta, beta), a, b, M);
- }
- }
-
- real dFermiDirac_deta(real k, real eta, real beta) {
- if (eta > 1.0e+10) {
- return dfd_deta_bigeta(k, eta, beta);
- } else {
- real w = std::max(width, 1.0e-10 * eta);
- real a = std::max(0.0, eta - w);
- real b = std::max(w, eta + w);
- return integrate(dfd_deta(k, eta, beta), a, b, M);
- }
- }
- */
 void aparcio_cuts(real eta, real& x1, real& x2, real& x3) {
 	constexpr real D = 3.3609;
 	constexpr real sigma = 9.1186e-2;
@@ -304,13 +264,12 @@ real FermiDirac(real k, real eta, real beta) {
 	x0 = zero;
 	aparcio_cuts(eta, x1, x2, x3);
 	x4 = x3 + width;
-	constexpr int N = 100;
 	const real sum1 = integrate(fd2(k, eta, beta), std::sqrt(x0), std::sqrt(x1),
 			M);
 	const real sum2 = integrate(fd2(k, eta, beta), std::sqrt(x1), std::sqrt(x2),
 			M);
-	const real sum3 = integrate(fd(k, eta, beta), x2, x3, 1);
-	const real sum4 = integrate(fd(k, eta, beta), x3, x4, 1);
+	const real sum3 = integrate(fd(k, eta, beta), x2, x3, M);
+	const real sum4 = integrate(fd(k, eta, beta), x3, x4, M);
 	return two * (sum1 + sum2) + sum3 + sum4;
 }
 
@@ -327,7 +286,6 @@ real dFermiDirac_deta(real k, real eta, real beta) {
 		x0 = zero;
 		aparcio_cuts(eta, x1, x2, x3);
 		x4 = x3 + width;
-		constexpr int N = 100;
 
 		x0 = std::max(x0, a);
 		x1 = std::max(x1, a);
@@ -339,30 +297,11 @@ real dFermiDirac_deta(real k, real eta, real beta) {
 		x3 = std::min(x3, b);
 
 		const real sum1 = integrate(dfd2_deta(k, eta, beta), std::sqrt(x0),
-				std::sqrt(x1), 1);
+				std::sqrt(x1), M);
 		const real sum2 = integrate(dfd2_deta(k, eta, beta), std::sqrt(x1),
-				std::sqrt(x2), 1);
-		const real sum3 = integrate(dfd_deta(k, eta, beta), x2, x3, 1);
-		const real sum4 = integrate(dfd_deta(k, eta, beta), x3, x4, 1);
+				std::sqrt(x2), M);
+		const real sum3 = integrate(dfd_deta(k, eta, beta), x2, x3, M);
+		const real sum4 = integrate(dfd_deta(k, eta, beta), x3, x4, M);
 		return two * (sum1 + sum2) + sum3 + sum4;
 	}
 }
-/*
-int main() {
-	real x1, x2, x3;
-	const real k = 0.5;
-	real eta = 1.0;
-	real beta = 1.0;
-	real last_f1, last_f2;
-	real f1 = 1, f2 = 2;
-	for (M = 1; M < 1000909000; M *= 2) {
-		last_f1 = f1;
-		last_f2 = f2;
-		f1 = FermiDirac(k, eta, beta);
-		f2 = dFermiDirac_deta(k, eta, beta);
-		real e1 = std::abs(last_f1 - f1) / f1;
-		real e2 = std::abs(last_f2 - f2) / f2;
-		printf("%i %.14e %.4e %.14e %.4e\n", M, f1, e1, f2, e2);
-	}
-}
-*/

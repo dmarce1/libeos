@@ -15,11 +15,11 @@
 
 class bicubic_table {
 private:
-	std::vector<std::array<real, 16>> C;
 	real xmin, xmax, ymin, ymax;
-	int NX, NY;
 	real L1, L2, Linf;
 	real dx, dy;
+	int NX, NY;
+	std::vector<std::array<real, 16>> C;
 public:
 	bicubic_table(const std::function<real(real, real)>& func, real _xmin,
 			real _xmax, real _ymin, real _ymax, int _NX, int _NY);
