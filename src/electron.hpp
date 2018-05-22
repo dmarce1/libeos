@@ -25,6 +25,13 @@ private:
 	static constexpr real T_max = 1.0e+12;
 public:
 	electron_eos();
+	real P(real ne, real T) const;
+	real eps(real ne, real T) const;
+	real dP_dne(real ne, real T) const;
+	real dP_T(real ne, real T) const;
+	real deps_dne(real ne, real T) const;
+	real deps_dT(real ne, real T) const;
+
 };
 
 

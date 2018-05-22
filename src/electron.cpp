@@ -10,6 +10,39 @@
 #include "physcon.hpp"
 #include <cmath>
 
+real electron_eos::P(real ne, real T) const {
+	return ne * helmholtz(std::log(ne), std::log(T), 1, 0);
+}
+
+real electron_eos::eps(real ne, real T) const {
+	const real log_ne = std::log(ne);
+	const real log_T = std::log(T);
+	const real ST = -helmholtz(log_ne, log_T, 0, 1);
+	return (helmholtz(log_ne, log_T) + ST) / ne;
+}
+
+real electron_eos::dP_dne(real ne, real T) const {
+	const real log_ne = std::log(ne);
+	const real log_T = std::log(T);
+	return helmholtz(log_ne, log_T, 1, 0) + helmholtz(log_ne, log_T, 2, 0);
+}
+
+real electron_eos::dP_T(real ne, real T) const {
+	return ne * helmholtz(std::log(ne), std::log(T), 1, 1) / T;
+}
+
+real electron_eos::deps_dne(real ne, real T) const {
+	const real log_ne = std::log(ne);
+	const real log_T = std::log(T);
+	return (helmholtz(log_ne, log_T, 1, 0) - helmholtz(log_ne, log_T, 1, 1)
+			- helmholtz(log_ne, log_T) + helmholtz(log_ne, log_T, 0, 1))
+			/ (ne * ne);
+}
+
+real electron_eos::deps_dT(real ne, real T) const {
+
+}
+
 electron_eos::electron_eos() :
 		helmholtz([](real log_n, real log_T ) {
 			const real n = std::exp(log_n);
