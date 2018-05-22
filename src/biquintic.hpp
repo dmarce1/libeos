@@ -27,7 +27,7 @@ public:
 			real _xmax, real _ymin, real _ymax, real toler,
 			const char* filename = nullptr);
 
-	real operator()(real x, real y) const;
+	real operator()(real x, real y, int Dx = 0, int Dy = 0) const;
 	bool in_range(real x, real y) const;
 
 	void save(FILE* fp) const {

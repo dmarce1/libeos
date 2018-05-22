@@ -536,7 +536,7 @@ biquintic_table::biquintic_table(const std::function<real(real, real)>& func,
 	L1 /= NS;
 	L2 /= NS * NS;
 	L2 = std::sqrt(L2);
-	printf( "%e %e %e\n", L1, L2, Linf);
+	printf("%e %e %e\n", L1, L2, Linf);
 }
 
 bool biquintic_table::in_range(real x, real y) const {
@@ -546,7 +546,9 @@ bool biquintic_table::in_range(real x, real y) const {
 	return true;
 }
 
-real biquintic_table::operator()(real x, real y) const {
+constexpr real factorial[7] = { 1, 1, 2, 6, 24, 120, 720 };
+
+real biquintic_table::operator()(real x, real y, int Dx, int Dy) const {
 	int xi = std::min(std::max(2, int((x - xmin) / dx)), NX - 3);
 	int yi = std::min(std::max(2, int((y - ymin) / dy)), NY - 3);
 	if (x < xmin || y < ymin || x >= xmax || y >= ymax) {
@@ -563,10 +565,11 @@ real biquintic_table::operator()(real x, real y) const {
 	real sum = 0.0;
 	int k = 0;
 	y0 = 1.0;
-	for (int ky = 0; ky < 6; ky++) {
+	for (int ky = Dy; ky < 6; ky++) {
 		x0 = 1.0;
-		for (int kx = 0; kx < 6; kx++) {
-			sum += c[k] * x0 * y0;
+		const auto yfac = y0 * (factorial[ky] / factorial[ky - Dy]);
+		for (int kx = Dx; kx < 6; kx++) {
+			sum += yfac * c[k] * x0 * (factorial[kx] / factorial[kx - Dx]);
 			x0 *= x;
 			k++;
 		}
